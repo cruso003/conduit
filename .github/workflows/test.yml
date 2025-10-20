@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Codon
+        run: |
+          /bin/bash -c "$(curl -fsSL https://exaloop.io/install.sh)"
+          echo "$HOME/.codon/bin" >> $GITHUB_PATH
+
+      - name: Verify Codon Installation
+        run: codon --version
+
+      - name: Build TurboX
+        run: ./scripts/build.sh
+
+      - name: Run Tests
+        run: ./scripts/test.sh
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build/

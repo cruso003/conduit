@@ -1,0 +1,8 @@
+"""Version information for TurboX"""
+
+VERSION = "0.1.0"
+__version__ = VERSION
+
+def get_version() -> str:
+    """Get the current TurboX version"""
+    return VERSION

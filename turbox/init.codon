@@ -1,0 +1,11 @@
+"""
+TurboX - Native-speed Python web framework
+
+A high-performance web framework built on Codon, delivering
+Go/Rust-level performance with Python-like syntax.
+"""
+
+from .version import VERSION, __version__
+from .server.turbox import TurboX
+
+__all__ = ["TurboX", "VERSION", "__version__"]
