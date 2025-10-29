@@ -1,0 +1,55 @@
+from conduit.http.router import Router
+
+router = Router()
+
+# Add routes
+router.add_route("/", "GET")
+router.add_route("/api/users", "GET")
+router.add_route("/api/users/:id", "GET")
+router.add_route("/api/users/:id/posts/:post_id", "GET")
+router.add_route("/static/*", "GET")
+router.add_route("/api/users", "POST")
+
+print("=== Router Tests ===\n")
+
+# Test 1: Exact match
+print("Test 1: Exact match")
+matched, idx, params = router.match("/", "GET")
+print(f"  / (GET): matched={matched}, route_idx={idx}")
+
+# Test 2: Exact match on nested path
+print("\nTest 2: Nested exact match")
+matched, idx, params = router.match("/api/users", "GET")
+print(f"  /api/users (GET): matched={matched}, route_idx={idx}")
+
+# Test 3: Single parameter
+print("\nTest 3: Single parameter")
+matched, idx, params = router.match("/api/users/123", "GET")
+print(f"  /api/users/123 (GET): matched={matched}, route_idx={idx}")
+print(f"  Params: {params}")
+
+# Test 4: Multiple parameters
+print("\nTest 4: Multiple parameters")
+matched, idx, params = router.match("/api/users/123/posts/456", "GET")
+print(f"  /api/users/123/posts/456 (GET): matched={matched}, route_idx={idx}")
+print(f"  Params: {params}")
+
+# Test 5: Wildcard
+print("\nTest 5: Wildcard")
+matched, idx, params = router.match("/static/css/style.css", "GET")
+print(f"  /static/css/style.css (GET): matched={matched}, route_idx={idx}")
+
+# Test 6: Different HTTP method
+print("\nTest 6: Method matching")
+matched, idx, params = router.match("/api/users", "POST")
+print(f"  /api/users (POST): matched={matched}, route_idx={idx}")
+
+matched, idx, params = router.match("/api/users", "DELETE")
+print(f"  /api/users (DELETE): matched={matched}, route_idx={idx}")
+
+# Test 7: No match
+print("\nTest 7: No match")
+matched, idx, params = router.match("/notfound", "GET")
+print(f"  /notfound (GET): matched={matched}, route_idx={idx}")
+
+print("\n✅ Router tests complete!")

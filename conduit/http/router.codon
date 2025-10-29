@@ -1,0 +1,199 @@
+# conduit/http/router.codon
+# URL pattern matching and routing for Conduit
+
+class Route:
+    """Represents a single route with pattern and handler info"""
+    pattern: str
+    method: str
+    param_names: List[str]
+    is_wildcard: bool
+    
+    def __init__(self, pattern: str, method: str = "GET"):
+        self.pattern = pattern
+        self.method = method.upper()
+        self.param_names = []
+        self.is_wildcard = False
+        
+        # Parse pattern for parameters
+        self._parse_pattern()
+    
+    def _parse_pattern(self):
+        """Extract parameter names from pattern like /users/:id"""
+        parts = self.pattern.split("/")
+        for part in parts:
+            if part.startswith(":"):
+                # Path parameter like :id
+                param_name = part[1:]  # Remove :
+                self.param_names.append(param_name)
+            elif part == "*":
+                # Wildcard
+                self.is_wildcard = True
+    
+    def matches(self, path: str, method: str) -> bool:
+        """Check if this route matches the given path and method"""
+        # Method must match
+        if self.method != method.upper():
+            return False
+        
+        # Exact match
+        if self.pattern == path:
+            return True
+        
+        # Wildcard match
+        if self.is_wildcard:
+            return path.startswith(self.pattern.replace("/*", ""))
+        
+        # Parameter match
+        if len(self.param_names) > 0:
+            return self._match_with_params(path)
+        
+        return False
+    
+    def _match_with_params(self, path: str) -> bool:
+        """Check if path matches pattern with parameters"""
+        pattern_parts = self.pattern.split("/")
+        path_parts = path.split("/")
+        
+        # Must have same number of segments
+        if len(pattern_parts) != len(path_parts):
+            return False
+        
+        # Each segment must match or be a parameter
+        for i in range(len(pattern_parts)):
+            pattern_part = pattern_parts[i]
+            path_part = path_parts[i]
+            
+            # Parameter - matches anything
+            if pattern_part.startswith(":"):
+                continue
+            
+            # Literal - must match exactly
+            if pattern_part != path_part:
+                return False
+        
+        return True
+    
+    def extract_params(self, path: str) -> Dict[str, str]:
+        """Extract parameter values from path"""
+        params: Dict[str, str] = {}
+        
+        if len(self.param_names) == 0:
+            return params
+        
+        pattern_parts = self.pattern.split("/")
+        path_parts = path.split("/")
+        
+        for i in range(len(pattern_parts)):
+            pattern_part = pattern_parts[i]
+            
+            if pattern_part.startswith(":"):
+                param_name = pattern_part[1:]
+                param_value = path_parts[i]
+                params[param_name] = param_value
+        
+        return params
+
+
+class Router:
+    """
+    Simple router with pattern matching
+    
+    Supports:
+    - Exact matches: /api/users
+    - Path parameters: /users/:id
+    - Wildcards: /static/*
+    - HTTP methods: GET, POST, PUT, DELETE
+    """
+    
+    routes: List[Route]
+    
+    def __init__(self):
+        self.routes = []
+    
+    def add_route(self, pattern: str, method: str = "GET"):
+        """Add a route pattern"""
+        route = Route(pattern, method)
+        self.routes.append(route)
+    
+    def match(self, path: str, method: str = "GET"):
+        """
+        Find matching route for path and method
+        
+        Returns:
+            Tuple of (matched: bool, route_index: int, params: Dict[str, str])
+        """
+        for i in range(len(self.routes)):
+            route = self.routes[i]
+            if route.matches(path, method):
+                params = route.extract_params(path)
+                return (True, i, params)
+        
+        # No match
+        empty_params: Dict[str, str] = {}
+        return (False, -1, empty_params)
+    
+    def get_route(self, index: int) -> Route:
+        """Get route by index"""
+        return self.routes[index]
+
+
+# Helper function for testing
+def test_router():
+    """Test routing functionality"""
+    
+    router = Router()
+    
+    # Add routes
+    router.add_route("/", "GET")
+    router.add_route("/api/users", "GET")
+    router.add_route("/api/users/:id", "GET")
+    router.add_route("/api/users/:id/posts/:post_id", "GET")
+    router.add_route("/static/*", "GET")
+    router.add_route("/api/users", "POST")
+    
+    print("=== Router Tests ===\n")
+    
+    # Test 1: Exact match
+    print("Test 1: Exact match")
+    matched, idx, params = router.match("/", "GET")
+    print(f"  / (GET): matched={matched}, route_idx={idx}")
+    
+    # Test 2: Exact match on nested path
+    print("\nTest 2: Nested exact match")
+    matched, idx, params = router.match("/api/users", "GET")
+    print(f"  /api/users (GET): matched={matched}, route_idx={idx}")
+    
+    # Test 3: Single parameter
+    print("\nTest 3: Single parameter")
+    matched, idx, params = router.match("/api/users/123", "GET")
+    print(f"  /api/users/123 (GET): matched={matched}, route_idx={idx}")
+    print(f"  Params: {params}")
+    
+    # Test 4: Multiple parameters
+    print("\nTest 4: Multiple parameters")
+    matched, idx, params = router.match("/api/users/123/posts/456", "GET")
+    print(f"  /api/users/123/posts/456 (GET): matched={matched}, route_idx={idx}")
+    print(f"  Params: {params}")
+    
+    # Test 5: Wildcard
+    print("\nTest 5: Wildcard")
+    matched, idx, params = router.match("/static/css/style.css", "GET")
+    print(f"  /static/css/style.css (GET): matched={matched}, route_idx={idx}")
+    
+    # Test 6: Different HTTP method
+    print("\nTest 6: Method matching")
+    matched, idx, params = router.match("/api/users", "POST")
+    print(f"  /api/users (POST): matched={matched}, route_idx={idx}")
+    
+    matched, idx, params = router.match("/api/users", "DELETE")
+    print(f"  /api/users (DELETE): matched={matched}, route_idx={idx}")
+    
+    # Test 7: No match
+    print("\nTest 7: No match")
+    matched, idx, params = router.match("/notfound", "GET")
+    print(f"  /notfound (GET): matched={matched}, route_idx={idx}")
+    
+    print("\n✅ Router tests complete!")
+
+# Uncomment to test
+# test_router()
