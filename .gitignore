@@ -7,6 +7,17 @@
 .codon_cache/
 __pycache__/
 
+# Compiled binaries (examples)
+echo_server
+simple_http_server
+custom_http_server
+http_server
+test_*
+!test_*.codon
+
+# Debug symbols
+*.dSYM/
+
 # Build directory
 build/
 dist/

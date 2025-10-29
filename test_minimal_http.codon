@@ -1,0 +1,30 @@
+# Minimal HTTP Request Parser for Conduit
+
+class HTTPRequest:
+    method: str
+    path: str
+    headers: Dict[str, str]
+    
+    def __init__(self):
+        self.method = ""
+        self.path = ""
+        self.headers = {}
+
+def parse_simple_request(data: str) -> HTTPRequest:
+    req = HTTPRequest()
+    lines = data.split("\n")
+    
+    # Parse first line
+    if len(lines) > 0:
+        parts = lines[0].split(" ")
+        if len(parts) >= 2:
+            req.method = parts[0]
+            req.path = parts[1]
+    
+    return req
+
+# Test
+data = "GET /api/users HTTP/1.1\nHost: localhost\n"
+req = parse_simple_request(data)
+print(f"Method: {req.method}")
+print(f"Path: {req.path}")

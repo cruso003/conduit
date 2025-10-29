@@ -1,0 +1,21 @@
+from conduit.http import HTTPRequest, parse_http_request
+
+print("=== Test 1: Simple GET ===")
+data1 = "GET /api/users HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: curl/7.64.1\r\n\r\n"
+req1 = parse_http_request(data1)
+print(f"Method: {req1.method}")
+print(f"Path: {req1.path}")
+print(f"Host: {req1.get_header('Host')}")
+
+print("\n=== Test 2: POST with JSON body ===")
+data2 = "POST /api/users HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 27\r\n\r\n{\"name\":\"john\",\"age\":30}"
+req2 = parse_http_request(data2)
+print(f"Method: {req2.method}")
+print(f"Body: {req2.body}")
+print(f"Content-Type: {req2.get_header('Content-Type')}")
+print(f"Content-Type (lowercase): {req2.get_header('content-type')}")
+
+print("\n=== Test 3: Missing header ===")
+print(f"Authorization: '{req2.get_header('Authorization', 'none')}'")
+
+print("\n✅ HTTP Request Parser working!")

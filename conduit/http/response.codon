@@ -1,0 +1,149 @@
+class HTTPResponse:
+    status_code: int
+    status_text: str
+    headers: Dict[str, str]
+    body: str
+    
+    def __init__(self, status_code: int = 200, body: str = ""):
+        self.status_code = status_code
+        self.status_text = get_status_text(status_code)
+        self.headers = {}
+        self.body = body
+        
+        # Set default headers
+        if body:
+            self.headers["Content-Length"] = str(len(body))
+    
+    def set_header(self, name: str, value: str):
+        """Set a response header"""
+        self.headers[name] = value
+    
+    def set_content_type(self, content_type: str):
+        """Set Content-Type header"""
+        self.headers["Content-Type"] = content_type
+    
+    def to_bytes(self) -> str:
+        """
+        Convert response to HTTP/1.1 format string
+        
+        Returns:
+            Full HTTP response as string ready to send via socket
+        """
+        lines: List[str] = []
+        
+        # Status line
+        status_line = f"HTTP/1.1 {self.status_code} {self.status_text}"
+        lines.append(status_line)
+        
+        # Headers
+        for name in self.headers:
+            value = self.headers[name]
+            lines.append(f"{name}: {value}")
+        
+        # Empty line separates headers from body
+        lines.append("")
+        
+        # Join headers with \r\n
+        response = "\r\n".join(lines)
+        
+        # Add body
+        if self.body:
+            response += "\r\n" + self.body
+        else:
+            response += "\r\n"
+        
+        return response
+
+
+def get_status_text(code: int) -> str:
+    """Get HTTP status text for status code"""
+    if code == 200:
+        return "OK"
+    elif code == 201:
+        return "Created"
+    elif code == 204:
+        return "No Content"
+    elif code == 301:
+        return "Moved Permanently"
+    elif code == 302:
+        return "Found"
+    elif code == 304:
+        return "Not Modified"
+    elif code == 400:
+        return "Bad Request"
+    elif code == 401:
+        return "Unauthorized"
+    elif code == 403:
+        return "Forbidden"
+    elif code == 404:
+        return "Not Found"
+    elif code == 405:
+        return "Method Not Allowed"
+    elif code == 500:
+        return "Internal Server Error"
+    elif code == 501:
+        return "Not Implemented"
+    elif code == 502:
+        return "Bad Gateway"
+    elif code == 503:
+        return "Service Unavailable"
+    else:
+        return "Unknown"
+
+
+def ok(body: str = "", content_type: str = "text/plain") -> HTTPResponse:
+    """Create 200 OK response"""
+    response = HTTPResponse(200, body)
+    if content_type:
+        response.set_content_type(content_type)
+    return response
+
+
+def json_response(body: str, status_code: int = 200) -> HTTPResponse:
+    """Create JSON response"""
+    response = HTTPResponse(status_code, body)
+    response.set_content_type("application/json")
+    return response
+
+
+def html_response(body: str, status_code: int = 200) -> HTTPResponse:
+    """Create HTML response"""
+    response = HTTPResponse(status_code, body)
+    response.set_content_type("text/html; charset=utf-8")
+    return response
+
+
+def text_response(body: str, status_code: int = 200) -> HTTPResponse:
+    """Create plain text response"""
+    response = HTTPResponse(status_code, body)
+    response.set_content_type("text/plain; charset=utf-8")
+    return response
+
+
+def not_found(message: str = "Not Found") -> HTTPResponse:
+    """Create 404 Not Found response"""
+    response = HTTPResponse(404, message)
+    response.set_content_type("text/plain")
+    return response
+
+
+def bad_request(message: str = "Bad Request") -> HTTPResponse:
+    """Create 400 Bad Request response"""
+    response = HTTPResponse(400, message)
+    response.set_content_type("text/plain")
+    return response
+
+
+def internal_error(message: str = "Internal Server Error") -> HTTPResponse:
+    """Create 500 Internal Server Error response"""
+    response = HTTPResponse(500, message)
+    response.set_content_type("text/plain")
+    return response
+
+
+def redirect(location: str, permanent: bool = False) -> HTTPResponse:
+    """Create redirect response"""
+    code = 301 if permanent else 302
+    response = HTTPResponse(code, "")
+    response.set_header("Location", location)
+    return response

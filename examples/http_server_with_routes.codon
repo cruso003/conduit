@@ -1,0 +1,26 @@
+from conduit.http.server import HTTPServer
+from conduit.http.request import HTTPRequest
+from conduit.http.response import json_response, html_response
+
+# Create server
+server = HTTPServer("0.0.0.0", 8080)
+
+# Define route handlers
+def handle_api_test(request: HTTPRequest):
+    body = '{"status": "ok", "message": "Hello from Conduit!", "path": "' + request.path + '"}'
+    return json_response(body)
+
+def handle_home(request: HTTPRequest):
+    return json_response('{"message": "Welcome to Conduit HTTP Server"}')
+
+def handle_about(request: HTTPRequest):
+    html = "<html><body><h1>About Conduit</h1><p>AI-native web framework powered by Codon</p></body></html>"
+    return html_response(html)
+
+# Register routes
+server.route("/", handle_home)
+server.route("/api/test", handle_api_test)
+server.route("/about", handle_about)
+
+# Start server
+server.start()

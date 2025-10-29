@@ -1,0 +1,55 @@
+# Test Codon string parsing capabilities
+# Testing what we need for HTTP request parsing
+
+def main():
+    # Test 1: Basic string splitting
+    print("=== Test 1: String splitting ===")
+    request_line = "GET /api/users HTTP/1.1"
+    parts = request_line.split(" ")
+    print(f"Method: {parts[0]}")
+    print(f"Path: {parts[1]}")
+    print(f"Version: {parts[2]}")
+    
+    # Test 2: Multi-line parsing (headers)
+    print("\n=== Test 2: Multi-line parsing ===")
+    raw_request = """GET /api/users HTTP/1.1
+Host: localhost:8080
+User-Agent: curl/7.64.1
+Accept: */*
+
+"""
+    lines = raw_request.split("\n")
+    print(f"Total lines: {len(lines)}")
+    for i, line in enumerate(lines):
+        print(f"Line {i}: '{line}'")
+    
+    # Test 3: Header parsing (key: value)
+    print("\n=== Test 3: Header parsing ===")
+    header = "Content-Type: application/json"
+    if ":" in header:
+        parts = header.split(":", 1)  # Split only on first colon
+        key = parts[0].strip()
+        value = parts[1].strip()
+        print(f"Key: '{key}'")
+        print(f"Value: '{value}'")
+    
+    # Test 4: String methods
+    print("\n=== Test 4: String methods ===")
+    test_str = "  Hello World  "
+    print(f"Original: '{test_str}'")
+    print(f"Stripped: '{test_str.strip()}'")
+    print(f"Lower: '{test_str.lower()}'")
+    print(f"Upper: '{test_str.upper()}'")
+    print(f"Starts with '  Hel': {test_str.startswith('  Hel')}")
+    
+    # Test 5: Finding substrings
+    print("\n=== Test 5: Finding substrings ===")
+    data = "GET /api HTTP/1.1\r\n\r\nBody content"
+    print(f"Data: {repr(data)}")
+    if "\r\n\r\n" in data:
+        print("Found double CRLF (header/body separator)")
+        parts = data.split("\r\n\r\n", 1)
+        print(f"Headers: '{parts[0]}'")
+        print(f"Body: '{parts[1]}'")
+
+main()

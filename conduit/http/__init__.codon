@@ -1,8 +1,13 @@
-"""
-TurboX HTTP Module
+# TurboX HTTP Module - HTTP protocol implementation
 
-HTTP protocol implementation.
-"""
+from .request import HTTPRequest, parse_http_request
+from .response import (
+    HTTPResponse, ok, json_response, html_response, text_response,
+    not_found, bad_request, internal_error, redirect
+)
 
-# Will be populated when we implement HTTP components
-__all__ = []
+__all__ = [
+    'HTTPRequest', 'parse_http_request',
+    'HTTPResponse', 'ok', 'json_response', 'html_response', 'text_response',
+    'not_found', 'bad_request', 'internal_error', 'redirect'
+]

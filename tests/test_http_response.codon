@@ -1,0 +1,42 @@
+from conduit.http.response import (
+    HTTPResponse, ok, json_response, html_response, 
+    not_found, bad_request, redirect
+)
+
+print("=== Test 1: Simple 200 OK ===")
+resp1 = ok("Hello, World!", "text/plain")
+output1 = resp1.to_bytes()
+print(output1)
+print(f"Status: {resp1.status_code} {resp1.status_text}")
+
+print("\n=== Test 2: JSON Response ===")
+json_body = '{"message": "Success", "user_id": 123}'
+resp2 = json_response(json_body)
+output2 = resp2.to_bytes()
+print(output2)
+
+print("\n=== Test 3: HTML Response ===")
+html_body = "<html><body><h1>Welcome</h1></body></html>"
+resp3 = html_response(html_body)
+output3 = resp3.to_bytes()
+print(output3)
+
+print("\n=== Test 4: 404 Not Found ===")
+resp4 = not_found("Page not found")
+output4 = resp4.to_bytes()
+print(output4)
+
+print("\n=== Test 5: Redirect ===")
+resp5 = redirect("/new-location")
+output5 = resp5.to_bytes()
+print(output5)
+print(f"Location header: {resp5.headers['Location']}")
+
+print("\n=== Test 6: Custom Headers ===")
+resp6 = ok("Custom response")
+resp6.set_header("X-Custom-Header", "CustomValue")
+resp6.set_header("X-Request-ID", "abc-123")
+output6 = resp6.to_bytes()
+print(output6)
+
+print("\n✅ HTTP Response Builder working!")

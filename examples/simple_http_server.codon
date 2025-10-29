@@ -1,0 +1,63 @@
+from conduit.net.socket import Socket
+from conduit.http import parse_http_request, json_response, not_found
+
+print("Starting simple HTTP server on port 8080...")
+print("Test with: curl http://localhost:8080/api/test")
+print("Press Ctrl+C to stop")
+
+server = Socket()
+server.bind("0.0.0.0", 8080)
+server.listen(5)
+
+print(f"[Server] Listening on port 8080")
+
+connection_count = 0
+
+while True:
+    client = server.accept()
+    connection_count += 1
+    
+    print(f"\n[Connection #{connection_count}] Accepted")
+    
+    # Receive HTTP request
+    data = client.recv(4096)
+    
+    if not data:
+        print(f"[Connection #{connection_count}] No data received")
+        client.close()
+        continue
+    
+    print(f"[Connection #{connection_count}] Received {len(data)} bytes")
+    
+    # Parse HTTP request
+    try:
+        request = parse_http_request(data)
+        print(f"[Connection #{connection_count}] {request.method} {request.path}")
+        
+        # Route handling
+        if request.path == "/api/test":
+            # JSON response
+            body = '{"status": "ok", "message": "Hello from Conduit!"}'
+            response = json_response(body)
+        elif request.path == "/":
+            # HTML response
+            body = "<h1>Conduit HTTP Server</h1><p>It works!</p>"
+            response = json_response('{"message": "Welcome to Conduit"}')
+        else:
+            # 404
+            response = not_found("Route not found")
+        
+        # Send response
+        response_data = response.to_bytes()
+        client.send(response_data)
+        print(f"[Connection #{connection_count}] Sent {response.status_code} {response.status_text}")
+        
+    except Exception as e:
+        print(f"[Connection #{connection_count}] Error: {e}")
+        error_response = '{"error": "Bad Request"}'
+        response = json_response(error_response, 400)
+        client.send(response.to_bytes())
+    
+    client.close()
+    print(f"[Connection #{connection_count}] Closed")
+

@@ -1,0 +1,93 @@
+from conduit.net.socket import Socket
+from conduit.http.request import HTTPRequest, parse_http_request
+from conduit.http.response import HTTPResponse, internal_error
+
+class HTTPServer:
+    host: str
+    port: int
+    socket: Socket
+    routes: Dict[str, int]  # Will store route paths, handlers managed separately
+    running: bool
+    
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080):
+        self.host = host
+        self.port = port
+        self.socket = Socket()
+        self.routes = {}
+        self.running = False
+    
+    def route(self, path: str, handler):
+        """Register a route handler"""
+        self.routes[path] = handler
+    
+    def handle_request(self, request: HTTPRequest) -> HTTPResponse:
+        """
+        Handle incoming HTTP request
+        
+        Routes to registered handler or returns 404
+        """
+        # Check if we have a handler for this path
+        if request.path in self.routes:
+            handler = self.routes[request.path]
+            try:
+                return handler(request)
+            except Exception as e:
+                print(f"[Error] Handler exception: {e}")
+                return internal_error(f"Handler error: {e}")
+        else:
+            # No route found - 404
+            from conduit.http.response import not_found
+            return not_found(f"Route not found: {request.path}")
+    
+    def start(self):
+        """Start the HTTP server"""
+        self.socket.bind(self.host, self.port)
+        self.socket.listen(5)
+        self.running = True
+        
+        print(f"[HTTPServer] Listening on {self.host}:{self.port}")
+        print(f"[HTTPServer] Registered routes: {list(self.routes.keys())}")
+        print("[HTTPServer] Press Ctrl+C to stop")
+        
+        connection_count = 0
+        
+        while self.running:
+            # Accept connection
+            client = self.socket.accept()
+            connection_count += 1
+            
+            try:
+                # Receive request data
+                data = client.recv(4096)
+                
+                if not data:
+                    client.close()
+                    continue
+                
+                # Parse HTTP request
+                request = parse_http_request(data)
+                print(f"[Request #{connection_count}] {request.method} {request.path}")
+                
+                # Handle request and get response
+                response = self.handle_request(request)
+                
+                # Send response
+                response_data = response.to_bytes()
+                client.send(response_data)
+                
+                print(f"[Response #{connection_count}] {response.status_code} {response.status_text}")
+                
+            except Exception as e:
+                print(f"[Error #{connection_count}] {e}")
+                # Send 500 error
+                error_resp = internal_error("Internal server error")
+                client.send(error_resp.to_bytes())
+            
+            finally:
+                client.close()
+    
+    def stop(self):
+        """Stop the HTTP server"""
+        self.running = False
+        self.socket.close()
+        print("[HTTPServer] Stopped")

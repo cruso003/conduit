@@ -1,0 +1,24 @@
+from conduit.http.simple_server import SimpleHTTPServer
+from conduit.http.request import HTTPRequest
+from conduit.http.response import json_response, html_response, not_found
+
+class MyServer(SimpleHTTPServer):
+    def __init__(self, host: str, port: int):
+        SimpleHTTPServer.__init__(self, host, port)
+    
+    def handle_request(self, request: HTTPRequest):
+        # Route by path
+        if request.path == "/":
+            return json_response('{"message": "Welcome to Conduit"}')
+        elif request.path == "/api/test":
+            body = '{"status": "ok", "message": "Hello from Conduit!"}'
+            return json_response(body)
+        elif request.path == "/about":
+            html = "<h1>About Conduit</h1><p>AI-native framework</p>"
+            return html_response(html)
+        else:
+            return not_found(f"Route not found: {request.path}")
+
+# Create and start server
+server = MyServer("0.0.0.0", 8080)
+server.start()

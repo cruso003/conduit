@@ -1,0 +1,96 @@
+class HTTPRequest:
+    method: str
+    path: str
+    headers: Dict[str, str]
+    body: str
+    
+    def __init__(self):
+        self.method = ""
+        self.path = ""
+        self.headers = {}
+        self.body = ""
+    
+    def get_header(self, name: str, default: str = "") -> str:
+        name_lower = name.lower()
+        for key in self.headers:
+            if key.lower() == name_lower:
+                return self.headers[key]
+        return default
+
+def parse_request_line(line: str):
+    parts = line.strip().split(" ")
+    
+    if len(parts) != 3:
+        raise ValueError(f"Invalid request line: '{line}'")
+    
+    method = parts[0].upper()
+    path = parts[1]
+    version = parts[2].upper()
+    
+    if not version.startswith("HTTP/"):
+        raise ValueError(f"Invalid HTTP version: '{version}'")
+    
+    return (method, path, version)
+
+def parse_headers(header_lines: List[str]) -> Dict[str, str]:
+    headers: Dict[str, str] = {}
+    
+    for line in header_lines:
+        line = line.strip()
+        
+        if not line:
+            break
+        
+        if ":" in line:
+            parts = line.split(":", 1)
+            key = parts[0].strip()
+            value = parts[1].strip()
+            headers[key] = value
+    
+    return headers
+
+def parse_http_request(data: str) -> HTTPRequest:
+    request = HTTPRequest()
+    
+    if "\r\n\r\n" in data:
+        parts = data.split("\r\n\r\n", 1)
+        header_section = parts[0]
+        request.body = parts[1] if len(parts) > 1 else ""
+        line_sep = "\r\n"
+    elif "\n\n" in data:
+        parts = data.split("\n\n", 1)
+        header_section = parts[0]
+        request.body = parts[1] if len(parts) > 1 else ""
+        line_sep = "\n"
+    else:
+        header_section = data
+        line_sep = "\r\n" if "\r\n" in data else "\n"
+    
+    lines = header_section.split(line_sep)
+    
+    if len(lines) == 0:
+        raise ValueError("Empty HTTP request")
+    
+    method, path, version = parse_request_line(lines[0])
+    request.method = method
+    request.path = path
+    
+    if len(lines) > 1:
+        request.headers = parse_headers(lines[1:])
+    
+    return request
+
+# Test
+print("=== HTTP Request Parser Test ===")
+data1 = "GET /api/users HTTP/1.1\r\nHost: localhost:8080\r\nUser-Agent: curl/7.64.1\r\n\r\n"
+req1 = parse_http_request(data1)
+print(f"Method: {req1.method}")
+print(f"Path: {req1.path}")
+print(f"Host: {req1.get_header('Host')}")
+
+print("\n=== POST with body ===")
+data2 = "POST /api/users HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 27\r\n\r\n{\"name\":\"john\",\"age\":30}"
+req2 = parse_http_request(data2)
+print(f"Method: {req2.method}")
+print(f"Body: {req2.body}")
+print(f"Content-Type: {req2.get_header('Content-Type')}")

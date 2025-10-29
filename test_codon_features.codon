@@ -1,0 +1,46 @@
+# Test basic Codon features we need
+# Testing tuple returns and dict types
+
+def test_tuples() -> None:
+    # Test 1: Tuple returns
+    print("=== Test 1: Tuple returns ===")
+    result = parse_method_path("GET /api/users HTTP/1.1")
+    method, path, version = result
+    print(f"Method: {method}, Path: {path}, Version: {version}")
+
+def parse_method_path(line: str):
+    """Returns tuple of strings"""
+    parts = line.split(" ")
+    return (parts[0], parts[1], parts[2])
+
+def test_dicts() -> None:
+    # Test 2: Dict usage
+    print("\n=== Test 2: Dict usage ===")
+    headers = {}
+    headers["Host"] = "localhost"
+    headers["User-Agent"] = "curl"
+    
+    for key in headers:
+        print(f"{key}: {headers[key]}")
+
+def test_class() -> None:
+    # Test 3: Class with dict field
+    print("\n=== Test 3: Class with dict ===")
+    
+    class Request:
+        method: str
+        headers: Dict[str, str]
+        
+        def __init__(self):
+            self.method = ""
+            self.headers = {}
+    
+    req = Request()
+    req.method = "GET"
+    req.headers["Host"] = "localhost"
+    print(f"Method: {req.method}")
+    print(f"Headers: {req.headers}")
+
+test_tuples()
+test_dicts()
+test_class()

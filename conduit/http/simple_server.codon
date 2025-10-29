@@ -1,0 +1,75 @@
+from conduit.net.socket import Socket
+from conduit.http.request import HTTPRequest, parse_http_request
+from conduit.http.response import HTTPResponse, internal_error, not_found
+
+class SimpleHTTPServer:
+    """Simple HTTP/1.1 server - override handle_request() to add routing"""
+    
+    host: str
+    port: int
+    socket: Socket
+    running: bool
+    
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080):
+        self.host = host
+        self.port = port
+        self.socket = Socket(0, 0, 0)  # Will be initialized properly
+        self.running = False
+    
+    def handle_request(self, request: HTTPRequest) -> HTTPResponse:
+        """
+        Override this method to implement your routing logic
+        
+        Default implementation returns 404
+        """
+        return not_found(f"No handler for: {request.path}")
+    
+    def start(self):
+        """Start the HTTP server"""
+        self.socket.bind(self.host, self.port)
+        self.socket.listen(5)
+        self.running = True
+        
+        print(f"[HTTPServer] Listening on {self.host}:{self.port}")
+        
+        connection_count = 0
+        
+        while self.running:
+            # Accept connection
+            client = self.socket.accept()
+            connection_count += 1
+            
+            try:
+                # Receive request data
+                data = client.recv(4096)
+                
+                if not data:
+                    client.close()
+                    continue
+                
+                # Parse HTTP request
+                request = parse_http_request(data)
+                print(f"[Request #{connection_count}] {request.method} {request.path}")
+                
+                # Handle request and get response
+                response = self.handle_request(request)
+                
+                # Send response
+                response_data = response.to_bytes()
+                client.send(response_data)
+                
+                print(f"[Response #{connection_count}] {response.status_code} {response.status_text}")
+                
+            except Exception as e:
+                print(f"[Error #{connection_count}] {e}")
+                error_resp = internal_error("Internal server error")
+                client.send(error_resp.to_bytes())
+            
+            finally:
+                client.close()
+    
+    def stop(self):
+        """Stop the HTTP server"""
+        self.running = False
+        self.socket.close()
+        print("[HTTPServer] Stopped")
