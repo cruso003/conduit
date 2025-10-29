@@ -1,4 +1,4 @@
-from turbox.net.socket import Socket
+from conduit.net.socket import Socket
 
 print("Socket import successful!")
 sock = Socket()

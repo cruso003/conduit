@@ -1,4 +1,4 @@
-# TurboX Network Module
+# Conduit Network Module
 
 Cross-platform TCP socket implementation using Codon's C FFI.
 
@@ -13,7 +13,7 @@ Cross-platform TCP socket implementation using Codon's C FFI.
 Works out of the box on macOS:
 
 ```python
-from turbox.net import Socket
+from conduit.net import Socket
 
 server = Socket()
 server.set_reuseaddr()
@@ -29,7 +29,7 @@ while True:
 
 ## Production Deployment (Linux)
 
-Before building for Linux servers, edit `turbox/net/socket.codon`:
+Before building for Linux servers, edit `conduit/net/socket.codon`:
 
 ```python
 # Change from (macOS dev environment):
@@ -45,7 +45,7 @@ _IS_MACOS = False
 
 Then build your application:
 ```bash
-CODON_PATH="/path/to/TurboX" codon build your_app.codon -o app
+CODON_PATH="/path/to/Conduit" codon build your_app.codon -o app
 ```
 
 ## Why This Approach?

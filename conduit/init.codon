@@ -6,6 +6,6 @@ Go/Rust-level performance with Python-like syntax.
 """
 
 from .version import VERSION, __version__
-from .server.turbox import TurboX
+from .server.conduit import TurboX
 
 __all__ = ["TurboX", "VERSION", "__version__"]

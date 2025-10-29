@@ -1,10 +1,10 @@
-# TurboX
+# Conduit
 
 <div align="center">
 
-![TurboX Logo](docs/assets/logo.png)
+<img src="docs/assets/logo.png" alt="Conduit Logo" width="200"/>
 
-**Native-speed Python web framework powered by Codon**
+**AI-native web framework powered by Codon**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Codon](https://img.shields.io/badge/Codon-0.16+-green.svg)](https://github.com/exaloop/codon)
@@ -14,9 +14,11 @@
 
 ---
 
-## 🚀 What is TurboX?
+## 🚀 What is Conduit?
 
-TurboX is a high-performance web framework built on the [Codon compiler](https://github.com/exaloop/codon). It compiles Python-like code to native machine code, delivering performance comparable to Go and Rust while maintaining Python's simplicity.
+Conduit is a high-performance web framework built on the [Codon compiler](https://github.com/exaloop/codon). It compiles Python-like code to native machine code, delivering performance comparable to Go and Rust while maintaining Python's simplicity.
+
+**Perfect for building MCP servers and AI agent tooling.**
 
 **Key Features:**
 
@@ -32,9 +34,9 @@ TurboX is a high-performance web framework built on the [Codon compiler](https:/
 ## 📊 Performance
 
 ```
-TurboX vs FastAPI (Preliminary)
+Conduit vs FastAPI (Preliminary)
 ─────────────────────────────────────────
-Metric              TurboX    FastAPI
+Metric              Conduit   FastAPI
 ─────────────────────────────────────────
 Requests/sec        85,000    3,500
 Latency (p95)       5ms       45ms
@@ -50,7 +52,15 @@ _Benchmarks running on AWS c5.2xlarge (8 vCPU, 16GB RAM)_
 
 ## 🎯 Use Cases
 
-**TurboX is perfect for:**
+**Conduit is perfect for:**
+
+- 🤖 Building MCP servers for AI agents (Claude, ChatGPT, etc.)
+
+---
+
+## 🎯 Use Cases
+
+**Conduit is perfect for:**
 
 - 🤖 Building MCP servers for AI agents (Claude, ChatGPT, etc.)
 - 🧠 Serving ML models with low latency
@@ -73,18 +83,18 @@ _Benchmarks running on AWS c5.2xlarge (8 vCPU, 16GB RAM)_
 # Install Codon
 /bin/bash -c "$(curl -fsSL https://exaloop.io/install.sh)"
 
-# Clone TurboX
-git clone https://github.com/sir-george2500/turboX.git
-cd turbox
+# Clone Conduit
+git clone https://github.com/cruso003/conduit.git
+cd conduit
 ```
 
 ### Hello World
 
 ```python
 # hello.codon
-from turbox import TurboX
+from conduit import Conduit
 
-app = TurboX()
+app = Conduit()
 
 @app.get("/")
 def index(request):
@@ -113,12 +123,12 @@ curl http://localhost:8000/
 
 ## 🤖 MCP Support
 
-TurboX has first-class support for the [Model Context Protocol](https://modelcontextprotocol.io):
+Conduit has first-class support for the [Model Context Protocol](https://modelcontextprotocol.io):
 
 ```python
-from turbox import TurboX
+from conduit import Conduit
 
-app = TurboX()
+app = Conduit()
 app.enable_mcp(transport="sse")
 
 @app.tool(
@@ -147,10 +157,10 @@ See the [MCP Guide](docs/mcp-guide.md) for more details.
 Serve ML models at native speed:
 
 ```python
-from turbox.ml import TurboXML, NumpyModel
+from conduit.ml import ConduitML, NumpyModel
 import numpy as np
 
-app = TurboXML()
+app = ConduitML()
 
 # Register model
 model = NumpyModel("classifier", "model.npz")
@@ -227,7 +237,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 **Current Status:** Alpha (v0.1.0)
 
-TurboX is in active development. The API may change between releases. Use in production at your own risk.
+Conduit is in active development. The API may change between releases. Use in production at your own risk.
 
 **What works:**
 
@@ -261,15 +271,17 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 📞 Contact
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/sir-george2500/turboX/issues)
-- **Discussions**: [Join the conversation](https://github.com/sir-george2500/turboX/discussions)
-- **Twitter**: [@turbox](https://twitter.com/turbox)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/cruso003/conduit/issues)
+- **Discussions**: [Join the conversation](https://github.com/cruso003/conduit/discussions)
+- **Twitter**: [@conduit_dev](https://twitter.com/conduit_dev)
 
 ---
 
 <div align="center">
 
 **Built with ❤️ using Codon**
+
+_Conduit: The fastest path between AI and reality_
 
 [Documentation](docs/) · [Examples](examples/) · [Benchmarks](benchmarks/)
 

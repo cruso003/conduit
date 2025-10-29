@@ -1,12 +1,12 @@
-# TurboX Architecture
+# Conduit Architecture
 
-This document explains the internal architecture of TurboX.
+This document explains the internal architecture of Conduit.
 
 ## Overview
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                     TurboX Server                       │
+│                     Conduit Server                       │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
@@ -43,9 +43,9 @@ This document explains the internal architecture of TurboX.
 
 **Key Files:**
 
-- `turbox/net/socket.codon` - Socket abstraction
-- `turbox/net/epoll.codon` - Event loop implementation
-- `turbox/net/connection.codon` - Connection state machine
+- `conduit/net/socket.codon` - Socket abstraction
+- `conduit/net/epoll.codon` - Event loop implementation
+- `conduit/net/connection.codon` - Connection state machine
 
 **Design Decisions:**
 
@@ -65,10 +65,10 @@ This document explains the internal architecture of TurboX.
 
 **Key Files:**
 
-- `turbox/http/request.codon` - HTTP request parser
-- `turbox/http/response.codon` - HTTP response builder
-- `turbox/http/router.codon` - Route matching
-- `turbox/http/sse.codon` - Server-Sent Events
+- `conduit/http/request.codon` - HTTP request parser
+- `conduit/http/response.codon` - HTTP response builder
+- `conduit/http/router.codon` - Route matching
+- `conduit/http/sse.codon` - Server-Sent Events
 
 **Design Decisions:**
 
@@ -88,10 +88,10 @@ This document explains the internal architecture of TurboX.
 
 **Key Files:**
 
-- `turbox/mcp/protocol.codon` - MCP message types
-- `turbox/mcp/server.codon` - MCP server implementation
-- `turbox/mcp/sse_transport.codon` - SSE transport
-- `turbox/mcp/stdio_transport.codon` - stdio transport
+- `conduit/mcp/protocol.codon` - MCP message types
+- `conduit/mcp/server.codon` - MCP server implementation
+- `conduit/mcp/sse_transport.codon` - SSE transport
+- `conduit/mcp/stdio_transport.codon` - stdio transport
 
 **Design Decisions:**
 
@@ -110,10 +110,10 @@ This document explains the internal architecture of TurboX.
 
 **Key Files:**
 
-- `turbox/ml/model.codon` - Model interface
-- `turbox/ml/registry.codon` - Model management
-- `turbox/ml/batch.codon` - Batch processing
-- `turbox/ml/parallel.codon` - Parallel inference
+- `conduit/ml/model.codon` - Model interface
+- `conduit/ml/registry.codon` - Model management
+- `conduit/ml/batch.codon` - Batch processing
+- `conduit/ml/parallel.codon` - Parallel inference
 
 **Design Decisions:**
 
@@ -337,4 +337,4 @@ class ModelRegistry:
 
 ---
 
-For implementation details, see the source code in `turbox/`.
+For implementation details, see the source code in `conduit/`.

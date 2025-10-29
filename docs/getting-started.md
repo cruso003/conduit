@@ -1,6 +1,6 @@
-# Getting Started with TurboX
+# Getting Started with Conduit
 
-This guide will walk you through installing TurboX and building your first server.
+This guide will walk you through installing Conduit and building your first server.
 
 ## Prerequisites
 
@@ -9,7 +9,7 @@ This guide will walk you through installing TurboX and building your first serve
 - **OS**: Linux (Ubuntu 20.04+, Debian 11+, etc.) or macOS (10.15+)
 - **CPU**: x86_64 architecture
 - **RAM**: 2GB minimum, 4GB recommended
-- **Disk**: 500MB for Codon + TurboX
+- **Disk**: 500MB for Codon + Conduit
 
 ### Required Software
 
@@ -30,14 +30,14 @@ codon --version
 # Should output: Codon 0.16.x or higher
 ```
 
-### Step 2: Install TurboX
+### Step 2: Install Conduit
 
 ```bash
 # Clone the repository
-git clone https://github.com/sir-george2500/turboX.git
-cd turbox
+git clone https://github.com/cruso003/conduit.git
+cd conduit
 
-# Build TurboX (optional, for development)
+# Build Conduit (optional, for development)
 ./scripts/build.sh
 ```
 
@@ -48,16 +48,16 @@ cd turbox
 codon run examples/hello_world.codon
 ```
 
-## Your First TurboX Server
+## Your First Conduit Server
 
 ### Hello World
 
 Create a file called `hello.codon`:
 
 ```python
-from turbox import TurboX
+from conduit import Conduit
 
-app = TurboX()
+app = Conduit()
 
 @app.get("/")
 def index(request):
@@ -102,9 +102,9 @@ codon build -release hello.codon
 ## Basic Routing
 
 ```python
-from turbox import TurboX
+from conduit import Conduit
 
-app = TurboX()
+app = Conduit()
 
 @app.get("/")
 def index(request):
@@ -148,7 +148,7 @@ def get_user(request):
 ### Custom Responses
 
 ```python
-from turbox.http import HTTPResponse
+from conduit.http import HTTPResponse
 
 @app.get("/custom")
 def custom(request):
@@ -183,7 +183,7 @@ app.run(
 
 ## Next Steps
 
-- [Architecture Overview](architecture.md) - Understand how TurboX works
+- [Architecture Overview](architecture.md) - Understand how Conduit works
 - [MCP Guide](mcp-guide.md) - Build MCP servers
 - [ML Guide](ml-guide.md) - Serve ML models
 - [API Reference](api-reference.md) - Complete API documentation
@@ -220,8 +220,8 @@ rm -rf .codon_cache
 
 ## Getting Help
 
-- [GitHub Issues](https://github.com/sir-george2500/turboX/issues)
-- [Discussions](https://github.com/sir-george2500/turboX/discussions)
+- [GitHub Issues](https://github.com/cruso003/conduit/issues)
+- [Discussions](https://github.com/cruso003/conduit/discussions)
 - [Codon Documentation](https://docs.exaloop.io/codon)
 
 Happy building! 🚀

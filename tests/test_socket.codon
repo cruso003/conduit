@@ -4,7 +4,7 @@ Socket Tests
 Basic tests for Socket functionality.
 """
 
-from turbox.net import Socket, SocketError
+from conduit.net import Socket, SocketError
 import sys
 
 def test_socket_creation():

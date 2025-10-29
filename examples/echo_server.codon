@@ -5,7 +5,7 @@ A simple TCP echo server that reflects back whatever it receives.
 This demonstrates the basic Socket API.
 """
 
-from turbox.net import Socket
+from conduit.net import Socket
 
 def main():
     print("TurboX Echo Server")

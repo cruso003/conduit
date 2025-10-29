@@ -1,13 +1,13 @@
 # Basic HTTP Server
 
-Learn how to build a basic HTTP server with TurboX.
+Learn how to build a basic HTTP server with Conduit.
 
 ## Simple GET Endpoint
 
 ```python
-from turbox import TurboX
+from conduit import Conduit
 
-app = TurboX()
+app = Conduit()
 
 @app.get("/")
 def index(request):
@@ -19,9 +19,9 @@ app.run(port=8000)
 ## Multiple Routes
 
 ```python
-from turbox import TurboX
+from conduit import Conduit
 
-app = TurboX()
+app = Conduit()
 
 @app.get("/")
 def home(request):
@@ -41,10 +41,10 @@ app.run(port=8000)
 ## Handling POST Requests
 
 ```python
-from turbox import TurboX
+from conduit import Conduit
 import json
 
-app = TurboX()
+app = Conduit()
 
 @app.post("/api/users")
 def create_user(request):
@@ -78,10 +78,10 @@ curl -X POST http://localhost:8000/api/users \
 ## Custom Headers
 
 ```python
-from turbox import TurboX
-from turbox.http import HTTPResponse
+from conduit import Conduit
+from conduit.http import HTTPResponse
 
-app = TurboX()
+app = Conduit()
 
 @app.get("/api/data")
 def get_data(request):
@@ -97,10 +97,10 @@ app.run(port=8000)
 ## Error Handling
 
 ```python
-from turbox import TurboX
-from turbox.http import HTTPResponse
+from conduit import Conduit
+from conduit.http import HTTPResponse
 
-app = TurboX()
+app = Conduit()
 
 @app.get("/users/{id}")
 def get_user(request):
@@ -121,11 +121,11 @@ app.run(port=8000)
 ## Complete Example
 
 ```python
-from turbox import TurboX
-from turbox.http import HTTPResponse
+from conduit import Conduit
+from conduit.http import HTTPResponse
 import json
 
-app = TurboX()
+app = Conduit()
 
 # In-memory storage (for demo)
 users = {}

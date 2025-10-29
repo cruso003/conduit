@@ -1,0 +1,16 @@
+---
+# GitHub Social Preview Configuration
+# This file is used by GitHub Pages
+
+title: Conduit
+description: AI-native web framework powered by Codon. Build MCP servers with native performance.
+logo: docs/assets/logo.png
+social:
+  image: docs/assets/social-card.png
+  name: Conduit
+  links:
+    - https://github.com/cruso003/conduit
+
+# Site settings
+theme: jekyll-theme-minimal
+show_downloads: false

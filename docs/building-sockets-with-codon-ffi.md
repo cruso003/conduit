@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Building TurboX, a high-performance web framework in Codon, presented an interesting challenge: Codon doesn't include a built-in socket library. This is the story of how we implemented low-level TCP sockets using Codon's Foreign Function Interface (FFI) to call POSIX C functions directly, achieving native performance while learning valuable lessons about systems programming.
+Building Conduit, a high-performance web framework in Codon, presented an interesting challenge: Codon doesn't include a built-in socket library. This is the story of how we implemented low-level TCP sockets using Codon's Foreign Function Interface (FFI) to call POSIX C functions directly, achieving native performance while learning valuable lessons about systems programming.
 
 ## The Challenge
 
@@ -211,13 +211,13 @@ After all these challenges, when we finally ran:
 
 ```bash
 Terminal 1: ./echo_server
-TurboX Echo Server
+Conduit Echo Server
 ==================
 ✓ Server listening on 0.0.0.0:8080
 ✓ Waiting for connections...
 
-Terminal 2: echo "Hello TurboX" | nc localhost 8080
-Hello TurboX  # IT WORKS! 🎉
+Terminal 2: echo "Hello Conduit" | nc localhost 8080
+Hello Conduit  # IT WORKS! 🎉
 ```
 
 The satisfaction was immense! We had successfully:
@@ -326,17 +326,17 @@ Building sockets with Codon's C FFI was challenging but incredibly rewarding. We
 - How to debug low-level C FFI issues
 - The importance of understanding the underlying platform
 
-The result is a high-performance, native socket implementation that forms the foundation for TurboX's networking capabilities. This journey proves that Codon can be used for serious systems programming while maintaining Python-like syntax.
+The result is a high-performance, native socket implementation that forms the foundation for Conduit's networking capabilities. This journey proves that Codon can be used for serious systems programming while maintaining Python-like syntax.
 
 The struggles made the success sweeter, and now we have a solid foundation to build a truly high-performance web framework!
 
 ## Try It Yourself
 
-Clone the TurboX repository and try the echo server:
+Clone the Conduit repository and try the echo server:
 
 ```bash
-git clone https://github.com/cruso003/TurboX.git
-cd TurboX
+git clone https://github.com/cruso003/Conduit.git
+cd Conduit
 git checkout feature/socket-implementation
 
 # Build

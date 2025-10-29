@@ -12,7 +12,7 @@ VERSION = "0.1.0"
 __version__ = VERSION
 
 # This will be populated as we build components:
-# from .server.turbox import TurboX
+# from .server.conduit import TurboX
 # from .net import Socket, SocketError
 # from .http import HTTPRequest, HTTPResponse
 

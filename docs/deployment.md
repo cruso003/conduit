@@ -1,6 +1,6 @@
-# TurboX Deployment Guide
+# Conduit Deployment Guide
 
-Guide for deploying TurboX applications to production servers.
+Guide for deploying Conduit applications to production servers.
 
 ## Typical Deployment Flow
 
@@ -21,14 +21,14 @@ Develop and test locally with default settings:
 
 ```bash
 # Works out of the box
-CODON_PATH="/path/to/TurboX" codon run your_app.codon
+CODON_PATH="/path/to/Conduit" codon run your_app.codon
 ```
 
 ### 2. Prepare for Linux Build
 
 **One-time configuration** before building for Linux:
 
-Edit `turbox/net/socket.codon` (around line 30):
+Edit `conduit/net/socket.codon` (around line 30):
 
 ```python
 # Change these 3 lines:
@@ -47,7 +47,7 @@ git checkout production-linux  # Linux deployment config
 
 ```bash
 # On your Linux build server
-CODON_PATH="/path/to/TurboX" codon build your_app.codon -o app
+CODON_PATH="/path/to/Conduit" codon build your_app.codon -o app
 
 # Copy OpenMP library if needed
 cp ~/.codon/lib/codon/libomp.so ./
@@ -86,9 +86,9 @@ COPY . /app
 WORKDIR /app
 
 # Configure for Linux (this could be automated with sed)
-RUN sed -i 's/SOL_SOCKET = 65535/SOL_SOCKET = 1/' turbox/net/socket.codon && \
-    sed -i 's/SO_REUSEADDR = 4/SO_REUSEADDR = 2/' turbox/net/socket.codon && \
-    sed -i 's/_IS_MACOS = True/_IS_MACOS = False/' turbox/net/socket.codon
+RUN sed -i 's/SOL_SOCKET = 65535/SOL_SOCKET = 1/' conduit/net/socket.codon && \
+    sed -i 's/SO_REUSEADDR = 4/SO_REUSEADDR = 2/' conduit/net/socket.codon && \
+    sed -i 's/_IS_MACOS = True/_IS_MACOS = False/' conduit/net/socket.codon
 
 # Build
 RUN CODON_PATH="/app" ~/.codon/bin/codon build your_app.codon -o app
@@ -104,8 +104,8 @@ CMD ["/app"]
 ### Build and Run
 
 ```bash
-docker build -t turbox-app .
-docker run -p 8080:8080 turbox-app
+docker build -t conduit-app .
+docker run -p 8080:8080 conduit-app
 ```
 
 ## Platform Configuration Quick Reference
@@ -115,7 +115,7 @@ docker run -p 8080:8080 turbox-app
 | `SOL_SOCKET` | 65535 | 1 |
 | `SO_REUSEADDR` | 4 | 2 |
 | `_IS_MACOS` | True | False |
-| File | `turbox/net/socket.codon` | Same file |
+| File | `conduit/net/socket.codon` | Same file |
 | When | Default (no change) | Before build |
 
 ## Automation Script
@@ -124,10 +124,10 @@ Create `scripts/configure-platform.sh`:
 
 ```bash
 #!/bin/bash
-# Configure TurboX for target platform
+# Configure Conduit for target platform
 
 PLATFORM=${1:-linux}
-SOCKET_FILE="turbox/net/socket.codon"
+SOCKET_FILE="conduit/net/socket.codon"
 
 if [ "$PLATFORM" = "linux" ]; then
     echo "Configuring for Linux..."
@@ -226,7 +226,7 @@ cp ~/.codon/lib/codon/libomp.so /usr/local/lib/
 ### Wrong platform configuration
 ```bash
 # Check current settings
-grep "SOL_SOCKET\|SO_REUSEADDR\|_IS_MACOS" turbox/net/socket.codon
+grep "SOL_SOCKET\|SO_REUSEADDR\|_IS_MACOS" conduit/net/socket.codon
 
 # Reconfigure
 ./scripts/configure-platform.sh linux
@@ -247,4 +247,4 @@ lsof -ti :8080 | xargs kill
 
 ---
 
-**TL;DR:** Change 3 lines in `turbox/net/socket.codon` before building for Linux. That's it! 🚀
+**TL;DR:** Change 3 lines in `conduit/net/socket.codon` before building for Linux. That's it! 🚀

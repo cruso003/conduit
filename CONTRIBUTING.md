@@ -1,6 +1,6 @@
-# Contributing to TurboX
+# Contributing to Conduit
 
-First off, thank you for considering contributing to TurboX! 🎉
+First off, thank you for considering contributing to Conduit! 🎉
 
 ## Code of Conduct
 
@@ -13,7 +13,7 @@ Be respectful, inclusive, and constructive. We're all here to build something co
 Before submitting a bug report:
 
 - Check if the bug has already been reported
-- Use the latest version of TurboX
+- Use the latest version of Conduit
 - Collect information about the bug (OS, Codon version, steps to reproduce)
 
 **Bug Report Template:**
@@ -33,7 +33,7 @@ What you expected to happen.
 **Environment:**
 - OS: [e.g. Ubuntu 22.04]
 - Codon version: [e.g. 0.16.3]
-- TurboX version: [e.g. 0.1.0]
+- Conduit version: [e.g. 0.1.0]
 
 **Additional context**
 Any other context about the problem.
@@ -80,12 +80,12 @@ Describe your testing approach.
 ```bash
 # Clone your fork
 git clone https://github.com/YOUR_USERNAME/turboX.git
-cd turbox
+cd conduit
 
 # Install Codon (if not already installed)
 /bin/bash -c "$(curl -fsSL https://exaloop.io/install.sh)"
 
-# Build TurboX
+# Build Conduit
 ./scripts/build.sh
 
 # Run tests
@@ -155,7 +155,7 @@ python benchmarks/compare.py before.json after.json
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/sir-george2500/turboX/discussions)
+- Open a [Discussion](https://github.com/cruso003/conduit/discussions)
 - Ask in issues (use the "question" label)
 
 ## Recognition
@@ -166,4 +166,4 @@ Contributors will be listed in:
 - CHANGELOG.md (for significant contributions)
 - Release notes
 
-Thank you for contributing to TurboX! 🚀
+Thank you for contributing to Conduit! 🚀
