@@ -1,0 +1,240 @@
+Using Codon's Foreign Function Interface (FFI) to call C code involves importing functions from a C library and providing explicit type annotations for argument and return types. This process makes the function callable from Codon, allowing it to execute at C-level speeds. 
+Here is a step-by-step example.
+Step 1: Create the C library
+First, write and compile the C code into a dynamic library. The functions you want to call from Codon must be declared with extern "C" to prevent C++ name mangling. 
+C header file: example.h
+
+
+// example.h
+#ifndef EXAMPLE_H
+#define EXAMPLE_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// A simple function that adds two integers
+int add(int a, int b);
+
+// A function that modifies a string in place
+void capitalize_string(char* s);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+
+
+C source file: example.c
+// example.c
+#include "example.h"
+#include <ctype.h>
+#include <string.h>
+
+int add(int a, int b) {
+    return a + b;
+}
+
+void capitalize_string(char* s) {
+    if (s == NULL) return;
+    for (int i = 0; i < strlen(s); i++) {
+        s[i] = toupper(s[i]);
+    }
+}
+
+
+Compile the C code
+Use a C compiler to create a shared library (.so on Linux, .dylib on macOS, .dll on Windows). 
+gcc -shared -o libexample.so example.c
+
+# main.codon
+# Import functions from the C library libexample.so
+# Specify the function name, its arguments, and its return type.
+from C import add(int, int) -> int, LIBRARY="libexample.so"
+from C import capitalize_string(cobj) -> None, LIBRARY="libexample.so"
+
+def main():
+    # Call the C 'add' function
+    result = add(10, 20)
+    print(f"Result of C add: {result}")
+
+    # Call the C 'capitalize_string' function
+    # Codon's native 'str' must be converted to a C-compatible string with `.c_str()`
+    my_string = "hello codon"
+    c_string = my_string.c_str()
+    capitalize_string(c_string)
+
+    # Note that `c_string` now points to the modified C string.
+    # To use it in Codon as a native string, you need to reconstruct it.
+    # This isn't necessary for simple cases where you just need to pass data.
+    # For demonstration, we can see the original `my_string` is unchanged,
+    # but the underlying C string was modified.
+
+    # Reconstruct the string from the modified C string (not the original Codon str)
+    modified_string = str(c_string)
+    print(f"Original Codon string: '{my_string}'")
+    print(f"Modified C-string (reconstructed): '{modified_string}'")
+
+main()
+
+
+Step 3: Compile and run the Codon code
+Use the Codon compiler to build and run your application.
+
+Result of C add: 30
+Original Codon string: 'hello codon'
+Modified C-string (reconstructed): 'HELLO CODON'
+
+Key takeaways for Codon FFI
+Import Syntax: Use from C import <function_signature>, LIBRARY="<library_name>" to import functions from a shared library.
+Type Signatures: Type annotations ((int, int) -> int) are mandatory for all imported C functions, as Codon is a statically compiled language.
+C-compatible strings: To pass a Codon string to a C function, you must convert it to a C-style null-terminated string using the .c_str() method. This gives you a cobj (a pointer) to the underlying data.
+Passing pointers: Use the cobj type for passing and receiving generic pointers. Use None to represent a void return type in C.
+Type conversions: Codon handles basic type conversions for primitive types like integers and floats automatically. For more complex types like strings, arrays, and structs, manual handling is required. 
+
+# Findings 2
+Codon does not currently include a built-in, native socket library in its standard library. While Codon's goal is to provide a fast, natively compiled alternative to Python, it has not yet reimplemented all of Python's extensive standard library. However, you can use Codon's Foreign Function Interface (FFI) or its Python bridge to interact with sockets. 
+Option 1: Use the Python bridge to import the socket module
+The most straightforward way to use sockets in Codon is by leveraging its Python bridge. This allows you to import and use Python's native socket module within your compiled Codon program. 
+Example: A simple TCP client using the Python bridge
+
+# main.codon
+from python import socket
+
+def main():
+    # Create a socket object using the Python bridge
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    # Define the server address and port
+    host = "example.com"
+    port = 80
+    
+    # Connect to the server
+    try:
+        print(f"Connecting to {host}:{port}...")
+        s.connect((host, port))
+        print("Connected successfully.")
+        
+        # Send an HTTP GET request
+        s.sendall(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        
+        # Receive data from the server
+        response = s.recv(4096)
+        print("Received response:")
+        print(response.decode("utf-8"))
+        
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        s.close()
+        print("Socket closed.")
+
+main()
+
+
+How it works
+from python import socket tells Codon to use the standard Python interpreter's version of the socket module at runtime.
+The rest of the code is standard Python socket programming syntax.
+When you compile and run this with Codon, the parts involving the socket module will be executed by the Python runtime, while other native Codon code will run at native speed. 
+
+Option 2: Use the C Foreign Function Interface (FFI)
+For scenarios requiring maximum performance without the Python interpreter overhead, you can use Codon's FFI to call the native C socket APIs directly. This is more complex but results in a purely compiled binary.
+Step 1: Write and compile a C wrapper
+Create a small C file to act as a bridge between Codon and the C socket library. This is needed because the C socket APIs often use pointers and complex types that are not directly supported by Codon's C module syntax.
+C header file: socket_wrapper.h
+
+#ifndef SOCKET_WRAPPER_H
+#define SOCKET_WRAPPER_H
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int connect_to(const char* host, int port);
+void send_message(int sockfd, const char* msg);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+
+
+#include "socket_wrapper.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+int connect_to(const char* host, int port) {
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        perror("Error creating socket");
+        return -1;
+    }
+    struct sockaddr_in serv_addr;
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(port);
+    
+    if (inet_pton(AF_INET, host, &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address/ Address not supported");
+        return -1;
+    }
+
+    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Connection Failed");
+        return -1;
+    }
+    return sockfd;
+}
+
+void send_message(int sockfd, const char* msg) {
+    send(sockfd, msg, strlen(msg), 0);
+}
+
+
+Compile the C wrapper
+
+gcc -shared -o libsocket_wrapper.so socket_wrapper.c
+
+Step 2: Use FFI in your Codon code
+
+# ffi_socket_client.codon
+from C import connect_to(cobj, int) -> int, LIBRARY="libsocket_wrapper.so"
+from C import send_message(int, cobj) -> None, LIBRARY="libsocket_wrapper.so"
+
+def main():
+    # Example using localhost; you could also use an IP address like "127.0.0.1"
+    host_c_str = "127.0.0.1".c_str() 
+    port = 8080
+    
+    # Call the C wrapper function
+    sockfd = connect_to(host_c_str, port)
+    
+    if sockfd >= 0:
+        print(f"Connected to socket with descriptor: {sockfd}")
+        
+        # Prepare and send a message
+        message_c_str = "Hello from Codon!".c_str()
+        send_message(sockfd, message_c_str)
+        
+        # NOTE: Receiving data requires more FFI calls (e.g., to recv)
+    else:
+        print("Failed to connect.")
+
+main()
+
+
+Comparison of approaches
+Feature	Python Bridge	C FFI
+Simplicity	High. Uses familiar Python syntax.	Low. Requires writing and compiling a C wrapper.
+Performance	Good. Overhead only when calling Python-specific modules.	Excellent. No runtime overhead; fully compiled.
+Flexibility	High. Access to the full Python socket API.	Limited. Requires writing a C wrapper for each specific function.
+Dependencies	Requires a Python interpreter to be available.	Only depends on the compiled C shared library.
+

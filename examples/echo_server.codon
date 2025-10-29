@@ -1,0 +1,79 @@
+"""
+TurboX Echo Server Example
+
+A simple TCP echo server that reflects back whatever it receives.
+This demonstrates the basic Socket API.
+"""
+
+from turbox.net import Socket
+
+def main():
+    print("TurboX Echo Server")
+    print("==================")
+    print("")
+    
+    # Create server socket
+    try:
+        server = Socket()
+        server.set_reuseaddr()
+        server.bind("0.0.0.0", 8080)
+        server.listen(128)
+        
+        print("✓ Server listening on 0.0.0.0:8080")
+        print("✓ Waiting for connections...")
+        print("  (Press Ctrl+C to stop)")
+        print("")
+        
+    except ValueError as e:
+        print(f"✗ Failed to start server: {e}")
+        return
+    
+    # Accept connections
+    connection_count = 0
+    
+    try:
+        while True:
+            # Accept new connection
+            try:
+                client = server.accept()
+                connection_count += 1
+                print(f"[Connection #{connection_count}] Client connected")
+                
+                # Echo loop
+                while True:
+                    try:
+                        # Receive data
+                        data = client.recv(4096)
+                        
+                        if len(data) == 0:
+                            continue
+                        
+                        # Echo it back
+                        client.send(data)
+                        
+                        # Print what we received
+                        text = data.strip()
+                        print(f"[Connection #{connection_count}] Echoed: {text[:50]}{'...' if len(text) > 50 else ''}")
+                        
+                    except EOFError:
+                        # Connection closed
+                        print(f"[Connection #{connection_count}] Client disconnected")
+                        break
+                    except ValueError as e:
+                        print(f"[Connection #{connection_count}] Error: {e}")
+                        break
+                
+                client.close()
+                
+            except ValueError as e:
+                print(f"Accept error: {e}")
+                continue
+                
+    except Exception as e:
+        print("")
+        print("Shutting down...")
+        server.close()
+        print("✓ Server stopped")
+
+if __name__ == "__main__":
+    main()

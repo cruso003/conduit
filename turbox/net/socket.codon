@@ -1,0 +1,166 @@
+"""
+TurboX Network Socket Implementation
+
+Low-level TCP socket wrapper using Codon's C FFI for native performance.
+Cross-platform: macOS (dev) and Linux (production).
+"""
+
+# Import C functions with proper type signatures
+from C import socket(int, int, int) -> int as c_socket
+from C import bind(int, cobj, u32) -> int as c_bind
+from C import listen(int, int) -> int as c_listen
+from C import accept(int, cobj, cobj) -> int as c_accept
+from C import recv(int, cobj, int, int) -> int as c_recv
+from C import send(int, cobj, int, int) -> int as c_send
+from C import close(int) -> int as c_close
+from C import setsockopt(int, int, int, cobj, u32) -> int as c_setsockopt
+from C import htons(u16) -> u16
+
+# ============================================================================
+# PLATFORM CONFIGURATION
+# ============================================================================
+# Socket constants differ between platforms. Update these when building for
+# production deployment on Linux servers.
+#
+# Development (macOS):  SOL_SOCKET=65535, SO_REUSEADDR=4, _IS_MACOS=True
+# Production (Linux):   SOL_SOCKET=1,     SO_REUSEADDR=2, _IS_MACOS=False
+# ============================================================================
+
+# Common constants (same on all platforms)
+AF_INET = 2
+SOCK_STREAM = 1
+
+# Platform-specific constants - CHANGE THESE FOR LINUX DEPLOYMENT
+SOL_SOCKET = 65535      # macOS: 65535 | Linux: 1
+SO_REUSEADDR = 4        # macOS: 4     | Linux: 2
+_IS_MACOS = True        # macOS: True  | Linux: False
+
+class Socket:
+    """TCP Socket wrapper using C FFI"""
+    
+    fd: int
+    
+    def __init__(self, domain: int = 0, sock_type: int = 0, protocol: int = 0):
+        """Create a new socket"""
+        if domain == 0:
+            domain = AF_INET
+        if sock_type == 0:
+            sock_type = SOCK_STREAM
+            
+        self.fd = c_socket(domain, sock_type, protocol)
+        
+        if self.fd < 0:
+            raise ValueError("Failed to create socket")
+    
+    def bind(self, host: str, port: int):
+        """Bind socket to address (cross-platform)"""
+        # Create sockaddr_in structure (16 bytes)
+        addr = Array[byte](16)
+        
+        # sin_port in network byte order (2 bytes)
+        port_be = int(htons(u16(port)))
+        
+        if _IS_MACOS:
+            # macOS layout: [sin_len:1][sin_family:1][sin_port:2][sin_addr:4][zero:8]
+            addr[0] = byte(16)              # sin_len (macOS only)
+            addr[1] = byte(AF_INET)         # sin_family
+            addr[2] = byte(port_be & 0xFF)  # sin_port
+            addr[3] = byte((port_be >> 8) & 0xFF)
+        else:
+            # Linux layout: [sin_family:2][sin_port:2][sin_addr:4][zero:8]
+            addr[0] = byte(AF_INET & 0xFF)         # sin_family (2 bytes)
+            addr[1] = byte((AF_INET >> 8) & 0xFF)
+            addr[2] = byte(port_be & 0xFF)         # sin_port
+            addr[3] = byte((port_be >> 8) & 0xFF)
+        
+        # sin_addr = INADDR_ANY (0.0.0.0) - 4 bytes (same on all platforms)
+        addr[4] = byte(0)
+        addr[5] = byte(0)
+        addr[6] = byte(0)
+        addr[7] = byte(0)
+        
+        # Rest is zero padding
+        for i in range(8, 16):
+            addr[i] = byte(0)
+        
+        result = c_bind(self.fd, addr.ptr, u32(16))
+        
+        if result < 0:
+            raise ValueError(f"Failed to bind to {host}:{port}")
+    
+    def listen(self, backlog: int = 128):
+        """Listen for connections"""
+        result = c_listen(self.fd, backlog)
+        
+        if result < 0:
+            raise ValueError("Failed to listen")
+    
+    def accept(self) -> Socket:
+        """Accept incoming connection"""
+        addr = Array[byte](16)
+        addrlen = Array[u32](1)
+        addrlen[0] = u32(16)
+        
+        client_fd = c_accept(self.fd, addr.ptr, cobj(addrlen.ptr))
+        
+        if client_fd < 0:
+            raise ValueError("Failed to accept")
+        
+        client = Socket.__new__()
+        client.fd = client_fd
+        return client
+    
+    def recv(self, size: int) -> str:
+        """Receive data from socket"""
+        buffer = Array[byte](size)
+        n = c_recv(self.fd, buffer.ptr, size, 0)
+        
+        if n < 0:
+            raise ValueError("Failed to receive")
+        
+        if n == 0:
+            raise EOFError("Connection closed by peer")
+        
+        # Convert buffer to string
+        return str(buffer.ptr, n)
+    
+    def send(self, data: str) -> int:
+        """Send data through socket"""
+        n = c_send(self.fd, data.ptr, len(data), 0)
+        
+        if n < 0:
+            raise ValueError("Failed to send")
+        
+        return n
+    
+    def set_reuseaddr(self):
+        """Enable SO_REUSEADDR option"""
+        optval = Array[byte](4)
+        optval[0] = byte(1)
+        optval[1] = byte(0)
+        optval[2] = byte(0)
+        optval[3] = byte(0)
+        
+        result = c_setsockopt(self.fd, SOL_SOCKET, SO_REUSEADDR, optval.ptr, u32(4))
+        
+        if result < 0:
+            raise ValueError("Failed to set SO_REUSEADDR")
+    
+    def close(self):
+        """Close the socket"""
+        if self.fd >= 0:
+            c_close(self.fd)
+            self.fd = -1
+    
+    def __del__(self):
+        """Destructor"""
+        self.close()
+
+
+def create_server_socket(host: str, port: int, backlog: int = 128) -> Socket:
+    """Helper to create a server socket"""
+    sock = Socket()
+    sock.set_reuseaddr()
+    sock.bind(host, port)
+    sock.listen(backlog)
+    return sock

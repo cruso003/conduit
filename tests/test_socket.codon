@@ -1,0 +1,104 @@
+"""
+Socket Tests
+
+Basic tests for Socket functionality.
+"""
+
+from turbox.net import Socket, SocketError
+import sys
+
+def test_socket_creation():
+    """Test that we can create a socket"""
+    print("Test: Socket creation... ", end="")
+    
+    try:
+        sock = Socket()
+        assert sock.fd >= 0, "Socket fd should be >= 0"
+        sock.close()
+        print("✓ PASS")
+        return True
+    except Exception as e:
+        print(f"✗ FAIL: {e}")
+        return False
+
+def test_socket_bind():
+    """Test binding to a port"""
+    print("Test: Socket bind... ", end="")
+    
+    try:
+        sock = Socket()
+        sock.set_reuseaddr()
+        sock.bind("0.0.0.0", 9999)
+        sock.close()
+        print("✓ PASS")
+        return True
+    except Exception as e:
+        print(f"✗ FAIL: {e}")
+        return False
+
+def test_socket_listen():
+    """Test listening for connections"""
+    print("Test: Socket listen... ", end="")
+    
+    try:
+        sock = Socket()
+        sock.set_reuseaddr()
+        sock.bind("0.0.0.0", 9998)
+        sock.listen(10)
+        sock.close()
+        print("✓ PASS")
+        return True
+    except Exception as e:
+        print(f"✗ FAIL: {e}")
+        return False
+
+def test_set_nonblocking():
+    """Test setting socket to non-blocking mode"""
+    print("Test: Set non-blocking... ", end="")
+    
+    try:
+        sock = Socket()
+        sock.set_nonblocking()
+        sock.close()
+        print("✓ PASS")
+        return True
+    except Exception as e:
+        print(f"✗ FAIL: {e}")
+        return False
+
+def main():
+    print("Running Socket Tests")
+    print("====================")
+    print("")
+    
+    tests = [
+        test_socket_creation,
+        test_socket_bind,
+        test_socket_listen,
+        test_set_nonblocking,
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for test in tests:
+        if test():
+            passed += 1
+        else:
+            failed += 1
+    
+    print("")
+    print("Results:")
+    print(f"  Passed: {passed}")
+    print(f"  Failed: {failed}")
+    print("")
+    
+    if failed > 0:
+        print("✗ Some tests failed")
+        sys.exit(1)
+    else:
+        print("✓ All tests passed!")
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()

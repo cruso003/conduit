@@ -1,0 +1,7 @@
+# Test Codon C FFI with a simple libc function
+from C import printf(cobj) -> int
+
+def main():
+    printf("Hello from C!\n".c_str())
+
+main()

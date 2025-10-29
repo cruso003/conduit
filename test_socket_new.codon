@@ -1,0 +1,7 @@
+from turbox.net.socket import Socket
+
+print("Socket import successful!")
+sock = Socket()
+print(f"Socket created with fd: {sock.fd}")
+sock.close()
+print("Socket closed successfully!")

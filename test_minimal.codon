@@ -1,0 +1,7 @@
+"""Minimal test to verify Codon compilation"""
+
+def main():
+    print("Hello from Codon!")
+
+if __name__ == "__main__":
+    main()
