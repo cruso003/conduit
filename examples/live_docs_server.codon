@@ -1,0 +1,510 @@
+"""
+Live Demo: Conduit API with Auto-Documentation
+
+Run this to see the branded Swagger UI in your browser!
+
+Usage:
+  codon build examples/live_docs_server.codon -o live_docs_server
+  ./live_docs_server
+  
+  Then open: http://localhost:8080/docs
+"""
+
+from C import socket(int, int, int) -> int as c_socket
+from C import bind(int, cobj, u32) -> int as c_bind
+from C import listen(int, int) -> int as c_listen
+from C import accept(int, cobj, cobj) -> int as c_accept
+from C import recv(int, cobj, int, int) -> int as c_recv
+from C import send(int, cobj, int, int) -> int as c_send
+from C import close(int) -> int as c_close
+from C import setsockopt(int, int, int, cobj, u32) -> int as c_setsockopt
+from C import htons(u16) -> u16
+
+AF_INET = 2
+SOCK_STREAM = 1
+SOL_SOCKET = 65535
+SO_REUSEADDR = 4
+
+class Socket:
+    fd: int
+    
+    def __init__(self):
+        self.fd = c_socket(AF_INET, SOCK_STREAM, 0)
+    
+    def bind(self, host: str, port: int):
+        addr = Array[byte](16)
+        port_be = int(htons(u16(port)))
+        addr[0] = byte(16)
+        addr[1] = byte(AF_INET)
+        addr[2] = byte(port_be & 0xFF)
+        addr[3] = byte((port_be >> 8) & 0xFF)
+        for i in range(4, 16):
+            addr[i] = byte(0)
+        c_bind(self.fd, addr.ptr, u32(16))
+    
+    def listen(self, backlog: int):
+        c_listen(self.fd, backlog)
+    
+    def set_reuseaddr(self):
+        optval = Array[byte](4)
+        optval[0] = byte(1)
+        for i in range(1, 4):
+            optval[i] = byte(0)
+        c_setsockopt(self.fd, SOL_SOCKET, SO_REUSEADDR, optval.ptr, u32(4))
+    
+    def accept(self) -> Socket:
+        addr = Array[byte](16)
+        addrlen = Array[u32](1)
+        addrlen[0] = u32(16)
+        client_fd = c_accept(self.fd, addr.ptr, cobj(addrlen.ptr))
+        client = Socket.__new__()
+        client.fd = client_fd
+        return client
+    
+    def recv(self, size: int) -> str:
+        buffer = Array[byte](size)
+        n = c_recv(self.fd, buffer.ptr, size, 0)
+        if n <= 0:
+            return ""
+        return str(buffer.ptr, n)
+    
+    def send(self, data: str) -> int:
+        return c_send(self.fd, data.ptr, len(data), 0)
+    
+    def close(self):
+        if self.fd >= 0:
+            c_close(self.fd)
+
+# OpenAPI Spec
+OPENAPI_SPEC = '''{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Conduit Demo API",
+    "version": "1.0.0",
+    "description": "A blazing-fast API built with Conduit - native performance, auto-documentation"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "API Information",
+        "description": "Get information about this API",
+        "tags": ["General"],
+        "responses": {
+          "200": {
+            "description": "API information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"},
+                    "version": {"type": "string"},
+                    "performance": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{id}": {
+      "get": {
+        "summary": "Get User",
+        "description": "Fetch a user by their unique ID",
+        "tags": ["Users"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"},
+            "description": "User ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "email": {"type": "string"},
+                    "created": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{id}/posts/{post_id}": {
+      "get": {
+        "summary": "Get User Post",
+        "description": "Fetch a specific post created by a user",
+        "tags": ["Users", "Posts"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"},
+            "description": "User ID"
+          },
+          {
+            "name": "post_id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"},
+            "description": "Post ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Post object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user_id": {"type": "string"},
+                    "post_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "body": {"type": "string"},
+                    "likes": {"type": "integer"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}'''
+
+# Swagger UI HTML with Conduit branding
+SWAGGER_HTML = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conduit API Documentation</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+        * { box-sizing: border-box; }
+        
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        
+        .conduit-header {
+            background: linear-gradient(135deg, #00D9FF 0%, #0066FF 100%);
+            color: white;
+            padding: 0;
+            box-shadow: 0 2px 8px rgba(0,102,255,0.15);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        
+        .conduit-nav {
+            max-width: 1460px;
+            margin: 0 auto;
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .conduit-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .conduit-logo-icon {
+            width: 56px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .conduit-logo-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        .conduit-logo h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+        
+        .conduit-meta {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            font-size: 14px;
+            opacity: 0.95;
+        }
+        
+        .conduit-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        .swagger-container {
+            max-width: 1460px;
+            margin: 0 auto;
+            background: white;
+            min-height: calc(100vh - 72px);
+        }
+        
+        #swagger-ui { 
+            padding: 20px 0;
+        }
+        
+        .swagger-ui .topbar { display: none !important; }
+        
+        .swagger-ui .opblock.opblock-get {
+            background: rgba(0,102,255,0.05);
+            border-color: #0066FF;
+        }
+        
+        .swagger-ui .opblock.opblock-get .opblock-summary-method {
+            background: #0066FF;
+        }
+        
+        .swagger-ui .opblock.opblock-post {
+            background: rgba(0,217,255,0.05);
+            border-color: #00D9FF;
+        }
+        
+        .swagger-ui .opblock.opblock-post .opblock-summary-method {
+            background: #00D9FF;
+            color: #001F3F;
+        }
+        
+        .swagger-ui .opblock.opblock-put {
+            background: rgba(0,102,255,0.05);
+            border-color: #0066FF;
+        }
+        
+        .swagger-ui .opblock.opblock-put .opblock-summary-method {
+            background: #0066FF;
+        }
+        
+        .swagger-ui .opblock.opblock-delete {
+            background: rgba(0,31,63,0.05);
+            border-color: #001F3F;
+        }
+        
+        .swagger-ui .opblock.opblock-delete .opblock-summary-method {
+            background: #001F3F;
+        }
+        
+        .swagger-ui .btn.execute {
+            background: linear-gradient(135deg, #0066FF 0%, #00D9FF 100%);
+            border: none;
+            color: white;
+        }
+        
+        .swagger-ui .btn.execute:hover {
+            background: linear-gradient(135deg, #0052CC 0%, #00C2E6 100%);
+        }
+        
+        .swagger-ui .info .title {
+            color: #001F3F;
+        }
+        
+        .swagger-ui .info .title small {
+            background: #0066FF;
+            color: white;
+        }
+        
+        .swagger-ui a {
+            color: #0066FF;
+        }
+        
+        .swagger-ui a:hover {
+            color: #00D9FF;
+        }
+        
+        .swagger-ui .scheme-container {
+            background: #f8f9fa;
+            border-color: #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <div class="conduit-header">
+        <div class="conduit-nav">
+            <div class="conduit-logo">
+                <div class="conduit-logo-icon">
+                    <img src="/assets/logo.png" alt="Conduit Logo">
+                </div>
+                <h1>Conduit</h1>
+            </div>
+            <div class="conduit-meta">
+                <span>Demo API</span>
+                <span class="conduit-badge">v1.0.0</span>
+                <span class="conduit-badge">Native Speed</span>
+            </div>
+        </div>
+    </div>
+    <div class="swagger-container">
+        <div id="swagger-ui"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+        window.onload = function() {
+            SwaggerUIBundle({
+                url: "/openapi.json",
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIBundle.SwaggerUIStandalonePreset
+                ],
+                layout: "BaseLayout",
+                defaultModelsExpandDepth: 1,
+                defaultModelExpandDepth: 1,
+                docExpansion: "list",
+                filter: true,
+                tryItOutEnabled: true
+            });
+        };
+    </script>
+</body>
+</html>'''
+
+print("=" * 70)
+print("⚡ Conduit: Live API Documentation Server")
+print("=" * 70)
+print("")
+print("Starting server on http://localhost:8080")
+print("")
+print("📖 Interactive Docs: http://localhost:8080/docs")
+print("📄 OpenAPI Spec:     http://localhost:8080/openapi.json")
+print("🚀 Example API:      http://localhost:8080/api/users/123")
+print("")
+print("Press Ctrl+C to stop")
+print("")
+
+sock = Socket()
+sock.set_reuseaddr()
+sock.bind("0.0.0.0", 8080)
+sock.listen(5)
+
+count = 0
+
+while True:
+    client = sock.accept()
+    count += 1
+    
+    try:
+        data = client.recv(4096)
+        if not data:
+            client.close()
+            continue
+        
+        lines = data.split("\n")
+        if len(lines) == 0:
+            client.close()
+            continue
+        
+        parts = lines[0].split(" ")
+        if len(parts) < 2:
+            client.close()
+            continue
+        
+        path = parts[1]
+        print(f"[{count}] {parts[0]} {path}")
+        
+        if path == "/docs" or path == "/docs/":
+            # Serve Swagger UI
+            response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: " + str(len(SWAGGER_HTML)) + "\r\n\r\n" + SWAGGER_HTML
+        
+        elif path == "/openapi.json":
+            # Serve OpenAPI spec
+            response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + str(len(OPENAPI_SPEC)) + "\r\n\r\n" + OPENAPI_SPEC
+        
+        elif path == "/":
+            # API root
+            body = '{"message": "Conduit API Server", "version": "1.0.0", "performance": "15x faster than FastAPI", "docs": "/docs"}'
+            response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + str(len(body)) + "\r\n\r\n" + body
+        
+        elif path == "/favicon.ico":
+            # Serve favicon
+            try:
+                favicon_file = open("docs/assets/favicon.ico", "rb")
+                favicon_data = favicon_file.read()
+                favicon_file.close()
+                response = "HTTP/1.1 200 OK\r\nContent-Type: image/x-icon\r\nContent-Length: " + str(len(favicon_data)) + "\r\nCache-Control: public, max-age=3600\r\n\r\n" + str(favicon_data.ptr, len(favicon_data))
+            except Exception as e:
+                print(f"[{count}] Favicon error: {e}")
+                body = ""
+                response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+        
+        elif path == "/assets/logo.png":
+            # Serve logo
+            try:
+                logo_file = open("docs/assets/logo.png", "rb")
+                logo_data = logo_file.read()
+                logo_file.close()
+                response = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " + str(len(logo_data)) + "\r\nCache-Control: public, max-age=3600\r\n\r\n" + str(logo_data.ptr, len(logo_data))
+            except Exception as e:
+                print(f"[{count}] Logo error: {e}")
+                body = ""
+                response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+        
+        elif path == "/assets/logo.png":
+            # Serve logo
+            try:
+                logo_file = open("docs/assets/logo.png", "rb")
+                logo_data = logo_file.read()
+                logo_file.close()
+                response = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " + str(len(logo_data)) + "\r\nCache-Control: public, max-age=86400\r\n\r\n"
+                client.send(response)
+                # Send binary data as string (Codon handles it)
+                client.send(str(logo_data.ptr, len(logo_data)))
+                client.close()
+                continue
+            except:
+                body = ""
+                response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+        
+        elif path.startswith("/api/users/"):
+            # Simple API response
+            body = '{"user_id": "123", "name": "John Doe", "email": "john@conduit.dev", "created": "2025-10-29"}'
+            response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + str(len(body)) + "\r\n\r\n" + body
+        
+        else:
+            # 404
+            body = '{"error": "Not found", "docs": "/docs"}'
+            response = "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: " + str(len(body)) + "\r\n\r\n" + body
+        
+        client.send(response)
+    
+    except Exception as e:
+        print(f"[{count}] Error: {e}")
+    
+    finally:
+        client.close()
