@@ -23,17 +23,20 @@ FastAPI's `/docs` endpoint is excellent, but it comes with trade-offs:
 Conduit provides automatic API documentation with:
 
 ### 🚀 Native Performance
+
 - **100,000+ requests/sec** for `/docs` endpoint
 - **15x faster** than FastAPI
 - Zero runtime overhead (compile-time generation)
 
 ### 🎨 Custom Branding
+
 - Beautiful Conduit-branded design
 - Cyan-to-blue gradient header with wave logo
 - Professional, modern aesthetic
 - Automatic favicon and logo serving
 
 ### ✨ Better Developer Experience
+
 - OpenAPI 3.0 spec generation
 - Interactive Swagger UI at `/docs`
 - Compile-time validation
@@ -92,6 +95,7 @@ open http://localhost:8080/docs
 ```
 
 The demo showcases:
+
 - ✅ Interactive Swagger UI with Conduit branding
 - ✅ OpenAPI 3.0 spec at `/openapi.json`
 - ✅ Custom favicon and logo serving
@@ -100,10 +104,10 @@ The demo showcases:
 
 ## Performance Comparison
 
-| Framework | /docs Endpoint | Throughput |
-|-----------|---------------|------------|
-| **Conduit** | ~8 μs | **100K+ req/sec** |
-| FastAPI | ~125 ms | ~8K req/sec |
+| Framework   | /docs Endpoint | Throughput        |
+| ----------- | -------------- | ----------------- |
+| **Conduit** | ~8 μs          | **100K+ req/sec** |
+| FastAPI     | ~125 ms        | ~8K req/sec       |
 
 **Conduit is 15x faster** while providing the same interactive documentation experience.
 
@@ -112,6 +116,7 @@ The demo showcases:
 ### Automatic Asset Serving
 
 Conduit automatically serves:
+
 - `/favicon.ico` - Your custom favicon
 - `/assets/logo.png` - Your brand logo
 - Proper cache headers for optimal performance
@@ -119,6 +124,7 @@ Conduit automatically serves:
 ### Conduit Branding
 
 Every `/docs` page features:
+
 - **Header gradient**: Electric Cyan → Deep Blue (#00D9FF → #0066FF)
 - **Wave logo**: Professional Conduit branding
 - **Clean design**: Modern, minimalist aesthetic
@@ -127,6 +133,7 @@ Every `/docs` page features:
 ### OpenAPI 3.0 Compliance
 
 Full OpenAPI 3.0 specification support:
+
 - Path parameters documentation
 - Request/response schemas
 - HTTP method documentation
@@ -162,26 +169,34 @@ docs.generate_swagger_html() -> str       # Swagger UI HTML
 ## Why It's Better
 
 ### 1. Compile-Time Generation
+
 Documentation is generated at compile time, not runtime. This means:
+
 - Zero performance impact on production
 - Validation errors caught before deployment
 - Smaller binary size
 
 ### 2. Native Performance
+
 Written in Codon, compiled to native code:
+
 - 15x faster than FastAPI's docs
 - Handles 100K+ requests/sec
 - Sub-microsecond response times
 
 ### 3. Custom Branding
+
 Unlike FastAPI's generic green theme:
+
 - Conduit-branded design out of the box
 - Professional appearance
 - Matches your brand identity
 - Logo and favicon support
 
 ### 4. Simpler API
+
 No decorator magic, no hidden behavior:
+
 - Explicit route documentation
 - Clear, readable code
 - Easy to understand and maintain

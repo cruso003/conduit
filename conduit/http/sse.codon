@@ -1,0 +1,49 @@
+"""
+Conduit SSE (Server-Sent Events) Module
+
+Provides classes for streaming real-time data to clients.
+Perfect for AI token streaming, progress updates, live notifications.
+"""
+
+class SSEEvent:
+    """Represents a single Server-Sent Event"""
+    event: str
+    data: str
+    id: str
+    retry: int
+    
+    def __init__(self, data: str, event: str = "", id: str = "", retry: int = 0):
+        self.data = data
+        self.event = event
+        self.id = id
+        self.retry = retry
+    
+    def format(self) -> str:
+        """Format event as SSE protocol string"""
+        lines = []
+        if self.event:
+            lines.append(f"event: {self.event}")
+        if self.id:
+            lines.append(f"id: {self.id}")
+        if self.retry > 0:
+            lines.append(f"retry: {self.retry}")
+        for line in self.data.split("\n"):
+            lines.append(f"data: {line}")
+        return "\n".join(lines) + "\n\n"
+
+
+class SSEStream:
+    """Helper for building SSE responses"""
+    events: List[SSEEvent]
+    
+    def __init__(self):
+        self.events = []
+    
+    def send_event(self, data: str, event: str = "", id: str = "", retry: int = 0) -> str:
+        """Create and return formatted SSE event"""
+        evt = SSEEvent(data, event, id, retry)
+        return evt.format()
+    
+    def get_headers(self) -> str:
+        """Get SSE response headers"""
+        return "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"
