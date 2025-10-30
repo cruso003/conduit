@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Demo Client</title>
+    <style>
+        * { box-sizing: border-box; }
+        
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #00D9FF 0%, #0066FF 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .demo-box {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        h2 {
+            color: #0066FF;
+            margin-top: 0;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #00D9FF 0%, #0066FF 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .output {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        .event {
+            margin: 5px 0;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #0066FF;
+        }
+        
+        .event-time {
+            border-left-color: #00D9FF;
+        }
+        
+        .event-counter {
+            border-left-color: #0066FF;
+        }
+        
+        .status {
+            color: #666;
+            font-style: italic;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌊 Conduit SSE Demo</h1>
+        
+        <div class="demo-box">
+            <h2>⏰ Time Stream</h2>
+            <button id="startTime" onclick="startTimeStream()">Start Stream</button>
+            <button id="stopTime" onclick="stopTimeStream()" disabled>Stop Stream</button>
+            <div class="output" id="timeOutput"></div>
+        </div>
+        
+        <div class="demo-box">
+            <h2>🔢 Counter Stream</h2>
+            <button id="startCount" onclick="startCountStream()">Start Stream</button>
+            <button id="stopCount" onclick="stopCountStream()" disabled>Stop Stream</button>
+            <div class="output" id="countOutput"></div>
+        </div>
+    </div>
+    
+    <script>
+        let timeSource = null;
+        let countSource = null;
+        
+        function startTimeStream() {
+            const output = document.getElementById('timeOutput');
+            output.innerHTML = '<div class="status">Connecting...</div>';
+            
+            timeSource = new EventSource('http://localhost:8000/time');
+            
+            timeSource.addEventListener('time', (e) => {
+                const event = document.createElement('div');
+                event.className = 'event event-time';
+                event.textContent = `${e.data} (ID: ${e.lastEventId})`;
+                output.appendChild(event);
+                output.scrollTop = output.scrollHeight;
+            });
+            
+            timeSource.onopen = () => {
+                output.innerHTML = '<div class="status">Connected! Streaming...</div>';
+            };
+            
+            timeSource.onerror = (e) => {
+                output.innerHTML += '<div class="status">Stream ended or error occurred</div>';
+                stopTimeStream();
+            };
+            
+            document.getElementById('startTime').disabled = true;
+            document.getElementById('stopTime').disabled = false;
+        }
+        
+        function stopTimeStream() {
+            if (timeSource) {
+                timeSource.close();
+                timeSource = null;
+            }
+            document.getElementById('startTime').disabled = false;
+            document.getElementById('stopTime').disabled = true;
+        }
+        
+        function startCountStream() {
+            const output = document.getElementById('countOutput');
+            output.innerHTML = '<div class="status">Connecting...</div>';
+            
+            countSource = new EventSource('http://localhost:8000/count');
+            
+            countSource.addEventListener('counter', (e) => {
+                const event = document.createElement('div');
+                event.className = 'event event-counter';
+                event.textContent = `${e.data} (ID: ${e.lastEventId})`;
+                output.appendChild(event);
+                output.scrollTop = output.scrollHeight;
+            });
+            
+            countSource.onopen = () => {
+                output.innerHTML = '<div class="status">Connected! Streaming...</div>';
+            };
+            
+            countSource.onerror = (e) => {
+                output.innerHTML += '<div class="status">Stream complete!</div>';
+                stopCountStream();
+            };
+            
+            document.getElementById('startCount').disabled = true;
+            document.getElementById('stopCount').disabled = false;
+        }
+        
+        function stopCountStream() {
+            if (countSource) {
+                countSource.close();
+                countSource = null;
+            }
+            document.getElementById('startCount').disabled = false;
+            document.getElementById('stopCount').disabled = true;
+        }
+    </script>
+</body>
+</html>
