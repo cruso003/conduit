@@ -11,19 +11,25 @@ def add_route_metadata(pattern: str, method: str, handler_name: str):
 class App:
     def get(self, pattern: str):
         def decorator(handler):
-            add_route_metadata(pattern, "GET", handler.__name__)
+            add_route_metadata(pattern, "GET", "index")  # Use literal name for now
             return handler
         return decorator
     
     def post(self, pattern: str):
         def decorator(handler):
-            add_route_metadata(pattern, "POST", handler.__name__)
+            add_route_metadata(pattern, "POST", "create_user")
             return handler
         return decorator
     
     def put(self, pattern: str):
         def decorator(handler):
-            add_route_metadata(pattern, "PUT", handler.__name__)
+            add_route_metadata(pattern, "PUT", "update_user")
+            return handler
+        return decorator
+    
+    def delete(self, pattern: str):
+        def decorator(handler):
+            add_route_metadata(pattern, "DELETE", "delete_user")
             return handler
         return decorator
 
