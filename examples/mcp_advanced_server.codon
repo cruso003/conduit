@@ -1,0 +1,222 @@
+"""
+MCP Advanced Server - Practical Tool Examples
+
+Demonstrates sophisticated MCP tools with real-world use cases.
+
+Run with:
+    CODON_PATH=. codon run examples/mcp_advanced_server.codon
+"""
+
+from conduit.net import Socket
+from conduit.mcp.tool import Tool
+from conduit.mcp.jsonrpc import JSONRPCResponse, JSONRPCError, ERROR_METHOD_NOT_FOUND
+import time
+
+print("=" * 70)
+print("MCP Advanced Server - Practical Tool Examples")
+print("=" * 70)
+print("")
+print("Starting on http://localhost:9090")
+print("")
+
+# Create tools
+tools = [
+    Tool("math_eval", "Evaluate simple math expression (e.g., '5+3', '10*2')"),
+    Tool("string_upper", "Convert string to uppercase"),
+    Tool("string_lower", "Convert string to lowercase"),
+    Tool("string_reverse", "Reverse a string"),
+    Tool("timestamp", "Get current Unix timestamp")
+]
+
+print("Registered " + str(len(tools)) + " tools")
+print("")
+
+# Create server socket
+sock = Socket()
+sock.set_reuseaddr()
+sock.bind("0.0.0.0", 9090)
+sock.listen(5)
+
+print("Server listening...")
+print("")
+
+count = 0
+
+while True:
+    try:
+        client = sock.accept()
+        count += 1
+    except Exception as e:
+        print("Accept failed: " + str(e))
+        continue
+    
+    try:
+        data = client.recv(4096)
+        if not data:
+            client.close()
+            continue
+        
+        lines = data.split("\n")
+        if len(lines) == 0:
+            client.close()
+            continue
+        
+        parts = lines[0].split(" ")
+        if len(parts) < 2:
+            client.close()
+            continue
+        
+        method = parts[0]
+        path = parts[1]
+        print("[" + str(count) + "] " + method + " " + path)
+        
+        # Handle GET request
+        if method == "GET":
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: text/plain\r\n"
+            response += "Content-Length: 18\r\n\r\n"
+            response += "MCP Server Running"
+            client.send(response)
+            client.close()
+            continue
+        
+        # Handle POST request
+        body_start = data.find("\r\n\r\n")
+        if body_start < 0:
+            client.close()
+            continue
+        
+        body = data[body_start + 4:]
+        
+        if "tools/list" in body:
+            tools_json = "["
+            for i, tool in enumerate(tools):
+                if i > 0:
+                    tools_json += ","
+                tools_json += tool.to_json()
+            tools_json += "]"
+            
+            result = '{"tools":' + tools_json + '}'
+            response_obj = JSONRPCResponse("1", result)
+            result_json = response_obj.to_json()
+            
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(result_json)) + "\r\n\r\n"
+            response += result_json
+            
+            client.send(response)
+            client.close()
+        
+        elif "tools/call" in body:
+            output = ""
+            
+            if "math_eval" in body:
+                # Extract expression from body (simple parsing)
+                if '"expr":"' in body:
+                    start = body.find('"expr":"') + 8
+                    end = body.find('"', start)
+                    if end > start:
+                        expr = body[start:end]
+                        # Simple calculator
+                        result_val = ""
+                        if "+" in expr:
+                            parts = expr.split("+")
+                            result_val = str(float(parts[0]) + float(parts[1]))
+                        elif "-" in expr:
+                            parts = expr.split("-")
+                            result_val = str(float(parts[0]) - float(parts[1]))
+                        elif "*" in expr:
+                            parts = expr.split("*")
+                            result_val = str(float(parts[0]) * float(parts[1]))
+                        elif "/" in expr:
+                            parts = expr.split("/")
+                            if float(parts[1]) != 0.0:
+                                result_val = str(float(parts[0]) / float(parts[1]))
+                            else:
+                                result_val = "Error: Division by zero"
+                        else:
+                            result_val = expr
+                        output = '{"expression":"' + expr + '","result":"' + result_val + '"}'
+                    else:
+                        output = '{"error":"Invalid expression format"}'
+                else:
+                    output = '{"error":"Missing expr parameter"}'
+            
+            elif "string_upper" in body:
+                if '"text":"' in body:
+                    start = body.find('"text":"') + 8
+                    end = body.find('"', start)
+                    text = body[start:end]
+                    output = '{"original":"' + text + '","result":"' + text.upper() + '"}'
+                else:
+                    output = '{"error":"Missing text parameter"}'
+            
+            elif "string_lower" in body:
+                if '"text":"' in body:
+                    start = body.find('"text":"') + 8
+                    end = body.find('"', start)
+                    text = body[start:end]
+                    output = '{"original":"' + text + '","result":"' + text.lower() + '"}'
+                else:
+                    output = '{"error":"Missing text parameter"}'
+            
+            elif "string_reverse" in body:
+                if '"text":"' in body:
+                    start = body.find('"text":"') + 8
+                    end = body.find('"', start)
+                    text = body[start:end]
+                    output = '{"original":"' + text + '","result":"' + text[::-1] + '"}'
+                else:
+                    output = '{"error":"Missing text parameter"}'
+            
+            elif "timestamp" in body:
+                ts = str(int(time.time()))
+                output = '{"timestamp":' + ts + '}'
+            
+            else:
+                error = JSONRPCError("1", ERROR_METHOD_NOT_FOUND, "Tool not found")
+                error_json = error.to_json()
+                
+                response = "HTTP/1.1 200 OK\r\n"
+                response += "Content-Type: application/json\r\n"
+                response += "Content-Length: " + str(len(error_json)) + "\r\n\r\n"
+                response += error_json
+                
+                client.send(response)
+                client.close()
+                continue
+            
+            # Wrap output in result object
+            result = '{"output":' + output + '}'
+            response_obj = JSONRPCResponse("1", result)
+            result_json = response_obj.to_json()
+            
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(result_json)) + "\r\n\r\n"
+            response += result_json
+            
+            client.send(response)
+            client.close()
+        
+        else:
+            error = JSONRPCError("1", ERROR_METHOD_NOT_FOUND, "Method not found")
+            error_json = error.to_json()
+            
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(error_json)) + "\r\n\r\n"
+            response += error_json
+            
+            client.send(response)
+            client.close()
+    
+    except Exception as e:
+        print("Error: " + str(e))
+        try:
+            client.close()
+        except:
+            pass
+
+
