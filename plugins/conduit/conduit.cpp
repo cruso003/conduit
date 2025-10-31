@@ -7,6 +7,8 @@
 #include "codon/cir/transform/pass.h"
 #include "codon/cir/util/irtools.h"
 #include "codon/cir/const.h"
+#include "codon/cir/instr.h"
+#include "codon/cir/flow.h"
 #include "codon/dsl/dsl.h"
 #include <iostream>
 #include <vector>
@@ -129,10 +131,65 @@ public:
                           << " -> " << route.handler_name << "\n";
             }
             std::cout << "\n";
+            
+            // Week 3: Generate dispatch function
+            std::cout << "╔══════════════════════════════════════════════════════════╗\n";
+            std::cout << "║  ⚡ Generating Dispatch Function                        ║\n";
+            std::cout << "╚══════════════════════════════════════════════════════════╝\n";
+            
+            BodiedFunc *dispatchFunc = generateDispatchFunction(module);
+            if (dispatchFunc) {
+                std::cout << "✅ Generated: " << dispatchFunc->getName() << "\n";
+                std::cout << "   Signature: (method: str, path: str, request: Request) -> Response\n";
+                std::cout << "   Routes: " << routes.size() << "\n\n";
+            } else {
+                std::cout << "❌ Failed to generate dispatch function\n\n";
+            }
         }
     }
     
     const std::vector<RouteInfo>& getRoutes() const { return routes; }
+    
+private:
+    /// Generate the dispatch function in IR
+    BodiedFunc* generateDispatchFunction(Module *M) {
+        std::cout << "  → Creating function skeleton...\n";
+        
+        // Step 1: Create function node
+        auto *dispatch = M->Nr<BodiedFunc>("conduit_dispatch");
+        
+        // Step 2: Create function type
+        // For now, use simple types (str, str, str) -> str
+        // TODO: Later use actual Request/Response types from framework
+        auto *strType = M->getStringType();
+        std::vector<types::Type*> argTypes = {strType, strType, strType};
+        auto *funcType = M->getFuncType(strType, argTypes);
+        
+        std::cout << "  → Realizing function with signature...\n";
+        
+        // Step 3: Realize function with argument names
+        std::vector<std::string> argNames = {"method", "path", "request"};
+        dispatch->realize(funcType, argNames);
+        
+        // Step 4: Create function body
+        std::cout << "  → Building function body...\n";
+        auto *body = M->Nr<SeriesFlow>();
+        
+        // Step 5: For now, just return a placeholder string
+        // TODO Week 3 Day 3: Build if/elif chain for route matching
+        auto *placeholder = M->getString("TODO: dispatch logic");
+        body->push_back(M->Nr<ReturnInstr>(placeholder));
+        
+        // Step 6: Set function body
+        dispatch->setBody(body);
+        
+        std::cout << "  → Function created successfully\n";
+        
+        // Note: Function is automatically part of the module since we used M->Nr<>
+        // No need to explicitly add it to the module
+        
+        return dispatch;
+    }
 };
 
 const std::string ConduitRouteDetector::KEY = "conduit-route-detector";
