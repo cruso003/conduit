@@ -11,6 +11,7 @@
 Codon's plugin system is **mature, well-documented, and perfect for our needs**. We can build a C++ shared library that hooks into the compilation pipeline and generates dispatch code during the IR transformation phase.
 
 **Key Findings**:
+
 - ✅ Codon has a complete plugin API with IR transformation framework
 - ✅ Official example plugin exists with full source code
 - ✅ Pass system allows inserting custom optimizations anywhere in pipeline
@@ -58,15 +59,15 @@ public:
         std::string url;
         std::string stdlibPath;
     };
-    
+
     virtual ~DSL() noexcept = default;
-    
+
     // Register IR passes (our main hook)
     virtual void addIRPasses(ir::transform::PassManager *pm, bool debug) {}
-    
+
     // Register LLVM passes (backend optimization)
     virtual void addLLVMPasses(llvm::PassBuilder *pb, bool debug) {}
-    
+
     // Add custom syntax (not needed for us)
     virtual std::vector<ExprKeyword> getExprKeywords() { return {}; }
     virtual std::vector<BlockKeyword> getBlockKeywords() { return {}; }
@@ -81,17 +82,18 @@ public:
 Two main types of passes:
 
 #### **OperatorPass** (what we'll use)
+
 ```cpp
 class MyPass : public transform::OperatorPass {
 public:
     static const std::string KEY;
     std::string getKey() const override { return KEY; }
-    
+
     // Called on every AssignInstr node
     void handle(AssignInstr *v) override {
         // Transform IR here
     }
-    
+
     // Called on every CallInstr node
     void handle(CallInstr *v) override {
         // Transform IR here
@@ -100,11 +102,12 @@ public:
 ```
 
 #### **Generic Pass**
+
 ```cpp
 class MyPass : public transform::Pass {
 public:
     std::string getKey() const override { return "my-pass"; }
-    
+
     void run(Module *module) override {
         // Manual traversal of module
     }
@@ -127,15 +130,16 @@ Key node types we'll work with:
 6. **Value**: Generic values (constants, references, etc.)
 
 #### IR Traversal Example
+
 ```cpp
 void handle(CallInstr *v) override {
     auto *M = v->getModule();               // Get module
     auto *func = util::getFunc(v->getCallee()); // Get called function
-    
+
     if (!func) return;
-    
+
     std::string name = func->getUnmangledName(); // Get function name
-    
+
     // Check arguments
     if (v->numArgs() != 2) return;
     auto *arg1 = v->front();  // First arg
@@ -144,6 +148,7 @@ void handle(CallInstr *v) override {
 ```
 
 #### IR Modification
+
 ```cpp
 // Replace a node
 auto *newValue = M->getInt(42);
@@ -168,6 +173,7 @@ auto *funcCall = util::call(targetFunc, {arg1, arg2});
 **Purpose**: Inserts validation calls after `foo()` calls
 
 **Source** (`validate.cpp`):
+
 ```cpp
 #include "codon/cir/transform/pass.h"
 #include "codon/cir/util/irtools.h"
@@ -179,22 +185,22 @@ class ValidateFoo : public transform::OperatorPass {
 public:
     static const std::string KEY;
     std::string getKey() const override { return KEY; }
-    
+
     void handle(AssignInstr *v) override {
         auto *M = v->getModule();
         auto *var = v->getLhs();
         auto *call = cast<CallInstr>(v->getRhs());
         if (!call) return;
-        
+
         auto *foo = util::getFunc(call->getCallee());
         if (!foo || foo->getUnmangledName() != "foo")
             return;
-        
+
         auto *arg1 = call->front();         // argument of 'foo' call
         auto *arg2 = M->Nr<VarValue>(var);  // result of 'foo' call
         auto *validate = M->getOrRealizeFunc("validate", {arg1->getType(), arg2->getType()});
         if (!validate) return;
-        
+
         auto *validateCall = util::call(validate, {arg1, arg2});
         insertAfter(validateCall);  // call 'validate' after 'foo'
     }
@@ -216,6 +222,7 @@ extern "C" std::unique_ptr<codon::DSL> load() {
 ```
 
 **Configuration** (`plugin.toml`):
+
 ```toml
 [about]
 name = "MyValidate"
@@ -229,6 +236,7 @@ cpp = "build/libmyvalidate"
 ```
 
 **Build System** (`CMakeLists.txt`):
+
 ```cmake
 cmake_minimum_required(VERSION 3.14)
 project(MyValidate)
@@ -281,6 +289,7 @@ def post_data(req: Request):
 ```
 
 **In IR, decorators become**:
+
 1. **Function definition**: `get_user`, `post_data`
 2. **Decorator call**: `app.get("/users/:id")(get_user)`
 3. **Route registration**: Adds to `app.route_info` list
@@ -288,6 +297,7 @@ def post_data(req: Request):
 ### Detection Strategy
 
 We need to find:
+
 1. **CallInstr** nodes calling `Conduit.get`, `Conduit.post`, etc.
 2. Extract the **path pattern** (first argument)
 3. Extract the **HTTP method** (from method name)
@@ -302,18 +312,19 @@ Once we've collected all routes, generate:
 def conduit_dispatch(method: str, path: str, req: Request) -> Response:
     # Perfect hash on method+path
     hash_val = hash_method_path(method, path)
-    
+
     # Jump table based on hash
     if hash_val == HASH_GET_USERS_ID:
         return get_user(req)
     elif hash_val == HASH_POST_API_DATA:
         return post_data(req)
     # ... etc
-    
+
     return Response(status=404)
 ```
 
 **Optimization opportunities**:
+
 1. **Perfect hash function**: Generate minimal perfect hash at compile-time
 2. **Inlining**: Mark handlers for aggressive inlining
 3. **Path extraction**: Pre-parse path patterns, generate specialized matchers
@@ -336,7 +347,7 @@ using namespace codon::ir;
 class ConduitHelloPass : public transform::Pass {
 public:
     std::string getKey() const override { return "conduit-hello"; }
-    
+
     void run(Module *module) override {
         std::cout << "🎉 Conduit plugin loaded!" << std::endl;
     }
@@ -369,16 +380,16 @@ public:
         std::string handler_name;
         Func *handler_func;
     };
-    
+
     std::vector<RouteInfo> routes;
-    
+
     void handle(CallInstr *v) override {
         // Detect @app.get("/path") pattern
         auto *func = util::getFunc(v->getCallee());
         if (!func) return;
-        
+
         std::string name = func->getUnmangledName();
-        
+
         // Check if it's Conduit.get, Conduit.post, etc.
         if (name.find("Conduit.get") != std::string::npos) {
             // Extract path from first argument
@@ -386,15 +397,15 @@ public:
             routes.push_back({.method = "GET", ...});
         }
     }
-    
+
     void run(Module *module) override {
         // First pass: detect routes
         OperatorPass::run(module);
-        
+
         // Print what we found
         std::cout << "Found " << routes.size() << " routes:" << std::endl;
         for (auto &r : routes) {
-            std::cout << "  " << r.method << " " << r.path 
+            std::cout << "  " << r.method << " " << r.path
                       << " -> " << r.handler_name << std::endl;
         }
     }
@@ -411,15 +422,15 @@ public:
     void run(Module *module) override {
         // Create new function
         auto *dispatchFunc = module->Nr<BodiedFunc>("conduit_dispatch");
-        
+
         // Add parameters: method, path, req
         auto *methodParam = module->Nr<Var>(module->getStringType(), "method");
         auto *pathParam = module->Nr<Var>(module->getStringType(), "path");
         auto *reqParam = module->Nr<Var>(requestType, "req");
-        
+
         // Build function body with if/elif chain
         auto *body = module->Nr<SeriesFlow>();
-        
+
         for (auto &route : routes) {
             // Generate: if method == "GET" and path_matches(path, "/users/:id"):
             //               return handler(req)
@@ -428,11 +439,11 @@ public:
             auto *ifFlow = module->Nr<IfFlow>(condition, callHandler);
             body->push_back(ifFlow);
         }
-        
+
         // Add default 404 response
         auto *notFound = /* create 404 response */;
         body->push_back(notFound);
-        
+
         dispatchFunc->setBody(body);
         module->push_back(dispatchFunc);
     }
@@ -492,10 +503,10 @@ codon build -plugin conduit examples/framework_autogen.codon
 namespace codon::ir::util {
     // Get function from value
     Func* getFunc(Value *v);
-    
+
     // Create function call
     CallInstr* call(Func *f, std::vector<Value*> args);
-    
+
     // Get module from any node
     Module* getModule(Node *n);
 }
@@ -555,6 +566,7 @@ void addIRPasses(transform::PassManager *pm, bool debug) override {
 ```
 
 This ensures:
+
 - All decorators are already processed
 - Route info is available
 - Constant folding can optimize our generated dispatch code
@@ -572,15 +584,15 @@ Test individual components in isolation:
 TEST(ConduitPlugin, DetectsGetRoute) {
     auto module = parseCodon(R"(
         app = Conduit()
-        
+
         @app.get("/test")
         def handler(req):
             return Response("OK")
     )");
-    
+
     ConduitRouteDetector detector;
     detector.run(module.get());
-    
+
     ASSERT_EQ(1, detector.routes.size());
     ASSERT_EQ("GET", detector.routes[0].method);
     ASSERT_EQ("/test", detector.routes[0].path);
@@ -649,11 +661,13 @@ Compare performance:
 
 1. ✅ **Research complete** - This document
 2. ⏭️ **Set up build environment**
+
    - Install Codon headers/dev files
    - Configure LLVM paths
    - Test CMake setup
 
 3. ⏭️ **Build hello world plugin**
+
    - Create `plugins/conduit/` directory
    - Write minimal pass that prints message
    - Create CMakeLists.txt
@@ -709,6 +723,7 @@ Compare performance:
 4. Leverages Codon's optimization passes
 
 **The path forward is clear**:
+
 - Week 1: Hello world plugin ← **START HERE**
 - Week 2: Route detection
 - Week 3: Dispatch generation
