@@ -1,0 +1,38 @@
+"""
+Milestone 3 Demo: Dispatch Helper
+
+Shows how to use app.print_dispatch_code() to make manual dispatch easier.
+"""
+
+from conduit import Conduit
+
+app = Conduit()
+
+@app.get("/")
+def home(request):
+    return {"message": "Home page"}
+
+@app.get("/about")
+def about(request):
+    return {"message": "About page"}
+
+@app.get("/users/:id")
+def get_user(request):
+    return {"user_id": request.params["id"]}
+
+@app.post("/users")
+def create_user(request):
+    data = request.parse_json()
+    return {"created": "true", "name": data.get("name", "")}
+
+@app.get("/search")
+def search(request):
+    query = request.query.get("q", "")
+    return {"query": query, "results": "found"}
+
+# Print the dispatch code helper
+app.print_dispatch_code()
+
+print("\nNow you can copy the dispatch code above into your server loop!")
+print("This is a known limitation of Codon's type system.")
+print("Future: We can build a code generator or Codon plugin to automate this.")

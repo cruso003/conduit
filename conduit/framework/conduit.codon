@@ -44,6 +44,7 @@ class Conduit:
     router: Router
     route_info: List[RouteInfo]  # Metadata about routes
     running: bool
+    _dispatch_fn_set: bool  # Flag to track if dispatch is configured
     
     def __init__(self, host: str = "0.0.0.0", port: int = 8000):
         """Initialize Conduit application"""
@@ -52,6 +53,7 @@ class Conduit:
         self.router = Router()
         self.route_info = []
         self.running = False
+        self._dispatch_fn_set = False
     
     def add_route_metadata(self, pattern: str, method: str, name: str = ""):
         """Register route metadata (called by decorators)"""
@@ -112,6 +114,48 @@ class Conduit:
             request.params = params
         
         return (matched, route_idx, params)
+    
+    def print_dispatch_code(self):
+        """
+        Print dispatch boilerplate code for copy-paste
+        
+        Due to Codon's type system limitations, we cannot store arbitrary
+        function pointers in collections. This helper generates the manual
+        dispatch code you need to add to your server loop.
+        
+        Call this after registering all routes to see the code you need.
+        """
+        num_routes = len(self.route_info)
+        
+        print("")
+        print("=" * 70)
+        print(f"Dispatch Code for {num_routes} Routes")
+        print("=" * 70)
+        print("")
+        print("Copy this into your server loop (after match_route):")
+        print("")
+        print("if matched:")
+        
+        for i in range(num_routes):
+            route = self.route_info[i]
+            if i == 0:
+                print(f"    if route_idx == {i}:  # {route.method} {route.pattern}")
+            else:
+                print(f"    elif route_idx == {i}:  # {route.method} {route.pattern}")
+            print(f"        response = app.to_response(handler_{i}(request))")
+        
+        print("    else:")
+        print("        response = app.error_response(\"Unknown route index\")")
+        print("else:")
+        print("    response = app.not_found_response()")
+        print("")
+        print("=" * 70)
+        print("")
+        print("Handler mapping:")
+        for i in range(num_routes):
+            route = self.route_info[i]
+            print(f"  handler_{i} = {route.name}  # {route.method} {route.pattern}")
+        print("")
     
     def not_found_response(self) -> HTTPResponse:
         """Generate 404 response"""

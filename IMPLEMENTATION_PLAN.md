@@ -544,6 +544,7 @@ app.run()
 **Status:** ✅ **COMPLETE** (Commit: `3724fcb`)
 
 **Delivered:**
+
 - ✅ Conduit class with route registration
 - ✅ Decorator-based routing (@app.get, @app.post, @app.put, @app.delete, @app.patch)
 - ✅ Path parameter support (/users/:id)
@@ -597,6 +598,7 @@ app.run()
 **Status:** ✅ **COMPLETE** (Commit: `4bf0021`)
 
 **Delivered:**
+
 - ✅ Query parameter parsing (request.query)
 - ✅ JSON body parsing (request.parse_json())
 - ✅ Raw query string access (request.query_string)
@@ -613,6 +615,7 @@ app.run()
 **Challenge:** Remove manual if/elif handler dispatch chains
 
 **Current (manual):**
+
 ```python
 if route_idx == 0:
     response = handler_0(request)
@@ -622,6 +625,7 @@ elif route_idx == 1:
 ```
 
 **Goal (automatic):**
+
 ```python
 # Framework handles dispatch automatically
 # No manual if/elif chains needed
@@ -630,6 +634,7 @@ elif route_idx == 1:
 **Status:** ❌ Not started
 
 **Approach Options:**
+
 1. Code generation at compile time
 2. Macro system for dispatch table
 3. Build-time handler registration
@@ -661,6 +666,7 @@ app.run()  # Starts MCP stdio transport
 **Status:** ❌ Not started (MCP servers exist but not integrated with framework)
 
 **Tasks:**
+
 - [ ] Integrate existing MCP implementation with Conduit class
 - [ ] Add @app.tool() decorator
 - [ ] Auto-generate tool schemas from function signatures
@@ -700,12 +706,14 @@ app.run()
 **Status:** 🔄 **Core implementation exists, needs integration**
 
 **Existing Assets:**
+
 - ✅ APIDocGenerator class (conduit/http/docs.codon)
 - ✅ Beautiful Conduit-branded Swagger UI
 - ✅ OpenAPI 3.0 spec generation
 - ✅ Working examples (documented_api_demo.codon, live_docs_server.codon)
 
 **Integration Tasks:**
+
 - [ ] Wire APIDocGenerator into Conduit class
 - [ ] Add @app.doc() decorator
 - [ ] Auto-register /docs and /openapi.json routes

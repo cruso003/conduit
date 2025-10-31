@@ -18,7 +18,7 @@ After completing Milestone 1 with basic routing and path parameters, we've now e
 
 ### 🎨 Response Helpers
 
-1. **JSON Response** - `response.json(data)` 
+1. **JSON Response** - `response.json(data)`
 2. **HTML Response** - `response.html(content)`
 3. **Redirects** - `response.redirect(url, permanent=False)`
 
@@ -29,12 +29,14 @@ After completing Milestone 1 with basic routing and path parameters, we've now e
 ### Starting Point
 
 After Milestone 1, we had:
+
 - ✅ Decorator-based routing (`@app.get`, `@app.post`)
 - ✅ Path parameters (`/users/:id`)
 - ✅ Automatic JSON serialization for dict returns
 - ✅ Basic request/response handling
 
 But we were missing fundamental features:
+
 - ❌ Query parameters (`?search=value`)
 - ❌ JSON body parsing (POST data)
 - ❌ Convenient response helpers
@@ -54,6 +56,7 @@ def search(request):
 **Implementation:**
 
 1. **Split path and query** in `parse_http_request()`:
+
 ```python
 # Split path and query string
 if "?" in path:
@@ -63,13 +66,14 @@ if "?" in path:
 ```
 
 2. **Parse key=value pairs**:
+
 ```python
 def parse_query_string(query: str) -> Dict[str, str]:
     params: Dict[str, str] = {}
-    
+
     if not query:
         return params
-    
+
     pairs = query.split("&")
     for pair in pairs:
         if "=" in pair:
@@ -78,11 +82,12 @@ def parse_query_string(query: str) -> Dict[str, str]:
             value = value.replace("+", " ")
             value = value.replace("%20", " ")
             params[key] = value
-    
+
     return params
 ```
 
 **Testing:**
+
 ```bash
 curl 'http://localhost:8001/search?q=codon&limit=20'
 {"query": "codon", "limit": "20", "results": "found"}
@@ -116,42 +121,42 @@ Added `parse_json()` method to `HTTPRequest`:
 class HTTPRequest:
     _json_cache: Dict[str, str]  # Cached parsed JSON
     _json_parsed: bool           # Parse flag
-    
+
     def parse_json(self) -> Dict[str, str]:
         """Parse JSON body - simple parser for {"key":"value"} format"""
         if self._json_parsed:
             return self._json_cache
-        
+
         self._json_parsed = True
-        
+
         if not self.body:
             return self._json_cache
-        
+
         # Simple JSON object parser
         content = self.body.strip()
         if not (content.startswith("{") and content.endswith("}")):
             return self._json_cache
-        
+
         # Remove braces
         content = content[1:-1].strip()
-        
+
         # Parse key-value pairs
         pairs = content.split(",")
         for pair in pairs:
             pair = pair.strip()
             if ":" not in pair:
                 continue
-            
+
             key_part, value_part = pair.split(":", 1)
-            
+
             # Remove quotes from key
             key = key_part.strip().strip('"')
-            
+
             # Remove quotes from value
             value = value_part.strip().strip('"')
-            
+
             self._json_cache[key] = value
-        
+
         return self._json_cache
 ```
 
@@ -162,10 +167,11 @@ class HTTPRequest:
 3. **Type safety** - Returns `Dict[str, str]` to match Codon's type requirements
 
 **Testing:**
+
 ```bash
 curl -X POST http://localhost:8001/api/create \
   -d '{"name":"Alice","email":"alice@example.com"}'
-  
+
 {"created": "true", "name": "Alice", "email": "alice@example.com"}
 ```
 
@@ -178,6 +184,7 @@ curl -X POST http://localhost:8001/api/create \
 Finally, we added convenience methods to `HTTPResponse` for common response types:
 
 **Before (verbose):**
+
 ```python
 response = HTTPResponse(200, '{"status":"ok"}')
 response.set_content_type("application/json")
@@ -185,6 +192,7 @@ return response
 ```
 
 **After (clean):**
+
 ```python
 response = HTTPResponse()
 return response.json({"status": "ok"})
@@ -202,15 +210,15 @@ def json(self, data: Dict[str, str], status_code: int = 200) -> HTTPResponse:
         value = data[key]
         escaped_value = value.replace('"', '\\"')
         pairs.append(f'"{key}": "{escaped_value}"')
-    
+
     json_body = "{" + ", ".join(pairs) + "}"
-    
+
     self.status_code = status_code
     self.status_text = get_status_text(status_code)
     self.body = json_body
     self.set_content_type("application/json")
     self.headers["Content-Length"] = str(len(json_body))
-    
+
     return self
 
 def html(self, content: str, status_code: int = 200) -> HTTPResponse:
@@ -220,7 +228,7 @@ def html(self, content: str, status_code: int = 200) -> HTTPResponse:
     self.body = content
     self.set_content_type("text/html; charset=utf-8")
     self.headers["Content-Length"] = str(len(content))
-    
+
     return self
 
 def redirect(self, location: str, permanent: bool = False) -> HTTPResponse:
@@ -230,7 +238,7 @@ def redirect(self, location: str, permanent: bool = False) -> HTTPResponse:
     self.body = ""
     self.set_header("Location", location)
     self.headers["Content-Length"] = "0"
-    
+
     return self
 ```
 
@@ -284,6 +292,7 @@ Location: /page
 ### 1. URL Parsing Is Subtle
 
 Query string parsing required handling:
+
 - `&` separators
 - `=` key-value pairs
 - URL encoding (`%20`, `+` for spaces)
@@ -293,6 +302,7 @@ Query string parsing required handling:
 ### 2. JSON Parsing Without a Library
 
 Since we're building from scratch in Codon, we implemented a simple JSON parser that:
+
 - Handles basic object format: `{"key":"value"}`
 - Strips quotes properly
 - Returns `Dict[str, str]` (Codon's type requirement)
@@ -312,6 +322,7 @@ response.json(data).set_header("X-Custom", "value")
 ### 4. Type Safety Throughout
 
 Every enhancement maintained Codon's type safety:
+
 - `request.query: Dict[str, str]`
 - `request.parse_json() -> Dict[str, str]`
 - `response.json(data: Dict[str, str])`
@@ -327,15 +338,18 @@ No dynamic typing, no runtime surprises.
 File: `conduit/http/request.codon`
 
 **New fields:**
+
 - `query: Dict[str, str]` - Parsed query parameters
 - `query_string: str` - Raw query string
 - `_json_cache: Dict[str, str]` - Cached JSON
 - `_json_parsed: bool` - Parse flag
 
 **New methods:**
+
 - `parse_json() -> Dict[str, str]` - Parse JSON body
 
 **New functions:**
+
 - `parse_query_string(query: str) -> Dict[str, str]` - URL query parser
 
 ### ✅ Enhanced Response Class
@@ -343,6 +357,7 @@ File: `conduit/http/request.codon`
 File: `conduit/http/response.codon`
 
 **New methods:**
+
 - `json(data, status_code=200)` - Create JSON response
 - `html(content, status_code=200)` - Create HTML response
 - `redirect(location, permanent=False)` - Create redirect
@@ -375,10 +390,10 @@ def search(request):
     query = request.query.get("q", "")
     page = request.query.get("page", "1")
     limit = request.query.get("limit", "10")
-    
+
     # Simulate search
     results = f"Found results for: {query}"
-    
+
     response = HTTPResponse()
     return response.json({
         "query": query,
@@ -391,20 +406,20 @@ def search(request):
 @app.post("/api/users")
 def create_user(request):
     data = request.parse_json()
-    
+
     name = data.get("name", "")
     email = data.get("email", "")
-    
+
     # Validate
     if not name or not email:
         response = HTTPResponse()
         return response.json({
             "error": "name and email required"
         }, status_code=400)
-    
+
     # Create user (simulated)
     user_id = "123"
-    
+
     response = HTTPResponse()
     return response.json({
         "id": user_id,
@@ -434,6 +449,7 @@ def index(request):
 ```
 
 **Usage:**
+
 ```bash
 # Search
 curl 'http://localhost:8000/api/search?q=python&page=1&limit=5'
@@ -466,6 +482,7 @@ With enhanced request/response complete, next up:
 ### 🎯 Automatic Handler Dispatch
 
 **Current (manual):**
+
 ```python
 if route_idx == 0:
     response = handler_0(request)
@@ -475,12 +492,14 @@ elif route_idx == 1:
 ```
 
 **Goal (automatic):**
+
 ```python
 # Framework handles dispatch automatically
 # No manual if/elif chains needed
 ```
 
 **Challenge:** Codon can't store function pointers in collections. Need creative solution:
+
 - Code generation?
 - Macro system?
 - Build-time dispatch table?
@@ -488,6 +507,7 @@ elif route_idx == 1:
 ### 🔮 MCP Integration (Milestone 4)
 
 After automatic dispatch, integrate Model Context Protocol:
+
 - `@app.tool()` decorator for MCP tools
 - Auto-generate JSON-RPC endpoints
 - Schema inference from function signatures
@@ -500,6 +520,7 @@ After automatic dispatch, integrate Model Context Protocol:
 **Milestone 2 Status: ✅ COMPLETE**
 
 We now have a web framework with:
+
 - ✅ Decorator routing
 - ✅ Path parameters
 - ✅ Query parameters
@@ -511,6 +532,7 @@ We now have a web framework with:
 The framework is becoming real. We're not just promising features—we're delivering them.
 
 **Commits:**
+
 - `feat: Add query parameter parsing to HTTPRequest`
 - `feat: Add JSON body parsing with parse_json()`
 - `feat: Add response helper methods (json, html, redirect)`
