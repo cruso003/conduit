@@ -1,0 +1,306 @@
+"""
+MCP Server with SSE Streaming Support
+
+Demonstrates real-time streaming of tool execution results using Server-Sent Events.
+Perfect for long-running operations where you want to stream progress updates.
+
+Run with: CODON_PATH=. codon run examples/mcp_streaming_server.codon
+"""
+
+from conduit.net import Socket
+from conduit.mcp import Tool, JSONRPCRequest, JSONRPCResponse, JSONRPCError
+from conduit.mcp import ERROR_PARSE, ERROR_INVALID_REQUEST, ERROR_METHOD_NOT_FOUND
+import time
+
+def send_sse_event(client: Socket, event: str, data: str, id: str = ""):
+    """Send a Server-Sent Event to client"""
+    msg = ""
+    if event:
+        msg += "event: " + event + "\n"
+    if id:
+        msg += "id: " + id + "\n"
+    for line in data.split("\n"):
+        msg += "data: " + line + "\n"
+    msg += "\n"
+    client.send(msg)
+
+def stream_long_computation(client: Socket, iterations: int):
+    """Example of streaming progress for a long-running computation"""
+    # Send SSE headers
+    headers = "HTTP/1.1 200 OK\r\n"
+    headers += "Content-Type: text/event-stream\r\n"
+    headers += "Cache-Control: no-cache\r\n"
+    headers += "Connection: keep-alive\r\n\r\n"
+    client.send(headers)
+    
+    # Stream progress events
+    for i in range(iterations):
+        progress = int((i + 1) * 100 / iterations)
+        data = '{"step":' + str(i + 1) + ',"total":' + str(iterations) + ',"progress":' + str(progress) + '}'
+        send_sse_event(client, "progress", data, str(i + 1))
+        time.sleep(1)  # Simulate work
+    
+    # Send completion event
+    result = '{"status":"completed","total_steps":' + str(iterations) + '}'
+    send_sse_event(client, "done", result, "final")
+
+def stream_token_generation(client: Socket, text: str):
+    """Simulate streaming tokens like an LLM"""
+    # Send SSE headers
+    headers = "HTTP/1.1 200 OK\r\n"
+    headers += "Content-Type: text/event-stream\r\n"
+    headers += "Cache-Control: no-cache\r\n"
+    headers += "Connection: keep-alive\r\n\r\n"
+    client.send(headers)
+    
+    # Stream each word as a token
+    words = text.split(" ")
+    for i, word in enumerate(words):
+        token_data = '{"token":"' + word + '","position":' + str(i) + '}'
+        send_sse_event(client, "token", token_data, str(i))
+        time.sleep(0.2)  # Simulate generation delay
+    
+    # Send done event
+    send_sse_event(client, "done", '{"status":"complete"}', "final")
+
+def stream_file_processing(client: Socket, filename: str):
+    """Simulate streaming file processing progress"""
+    # Send SSE headers
+    headers = "HTTP/1.1 200 OK\r\n"
+    headers += "Content-Type: text/event-stream\r\n"
+    headers += "Cache-Control: no-cache\r\n"
+    headers += "Connection: keep-alive\r\n\r\n"
+    client.send(headers)
+    
+    # Simulate processing stages
+    stages = ["Reading file", "Parsing content", "Analyzing data", "Generating report", "Complete"]
+    for i, stage in enumerate(stages):
+        progress = int((i + 1) * 100 / len(stages))
+        data = '{"stage":"' + stage + '","file":"' + filename + '","progress":' + str(progress) + '}'
+        send_sse_event(client, "processing", data, str(i))
+        time.sleep(0.8)
+    
+    # Send final result
+    result = '{"status":"success","file":"' + filename + '","lines":42,"words":256}'
+    send_sse_event(client, "result", result, "final")
+
+print("=" * 70)
+print("MCP Streaming Server - Real-time Tool Execution")
+print("=" * 70)
+print("")
+print("Starting on http://localhost:9091")
+print("")
+
+# Create tools
+tools = [
+    Tool("stream_compute", "Stream progress of long computation (param: iterations)"),
+    Tool("stream_tokens", "Stream text generation token by token (param: text)"),
+    Tool("stream_file", "Stream file processing progress (param: filename)"),
+    Tool("math_eval", "Evaluate math expression (no streaming)"),
+    Tool("timestamp", "Get current timestamp (no streaming)")
+]
+
+print("Registered " + str(len(tools)) + " tools (" + str(len([t for t in tools if "stream" in t.name])) + " streaming)")
+print("")
+
+# Create socket server
+server = Socket()
+server.set_reuseaddr()
+server.bind("0.0.0.0", 9091)
+server.listen(5)
+
+while True:
+    client = server.accept()
+    request = client.recv(4096)
+    
+    if not request:
+        client.close()
+        continue
+    
+    # Check if it's SSE request (GET with /stream endpoint)
+    if "GET /stream/" in request:
+        # Extract tool name from path
+        if "/stream/compute" in request:
+            # Extract iterations parameter from query string
+            iterations = 5
+            if "?iterations=" in request:
+                try:
+                    start = request.find("?iterations=") + 12
+                    end = request.find(" ", start)
+                    if end == -1:
+                        end = request.find("\r", start)
+                    iterations = int(request[start:end])
+                except:
+                    iterations = 5
+            print("[" + str(int(time.time())) + "] GET /stream/compute?iterations=" + str(iterations))
+            stream_long_computation(client, iterations)
+        
+        elif "/stream/tokens" in request:
+            # Extract text parameter
+            text = "Hello world from streaming MCP server"
+            if "?text=" in request:
+                start = request.find("?text=") + 6
+                end = request.find(" ", start)
+                if end == -1:
+                    end = request.find("\r", start)
+                text = request[start:end].replace("+", " ").replace("%20", " ")
+            print("[" + str(int(time.time())) + "] GET /stream/tokens")
+            stream_token_generation(client, text)
+        
+        elif "/stream/file" in request:
+            # Extract filename parameter
+            filename = "document.txt"
+            if "?filename=" in request:
+                start = request.find("?filename=") + 10
+                end = request.find(" ", start)
+                if end == -1:
+                    end = request.find("\r", start)
+                filename = request[start:end]
+            print("[" + str(int(time.time())) + "] GET /stream/file?filename=" + filename)
+            stream_file_processing(client, filename)
+        
+        else:
+            # Unknown stream endpoint
+            response = "HTTP/1.1 404 Not Found\r\n\r\n"
+            client.send(response)
+        
+        client.close()
+        continue
+    
+    # Parse HTTP method
+    lines = request.split("\r\n")
+    first_line = lines[0]
+    
+    # GET request - show server info
+    if "GET" in first_line:
+        if "/mcp" in first_line:
+            info = '{"name":"MCP Streaming Server","version":"1.0","streaming":true,"tools":' + str(len(tools)) + '}'
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(info)) + "\r\n\r\n"
+            response += info
+            client.send(response)
+        else:
+            response = "HTTP/1.1 200 OK\r\n\r\nMCP Streaming Server - Use POST /mcp for JSON-RPC or GET /stream/* for SSE"
+            client.send(response)
+        client.close()
+        continue
+    
+    # POST request - handle MCP JSON-RPC
+    if "POST" not in first_line:
+        client.close()
+        continue
+    
+    # Extract body
+    body = ""
+    in_body = False
+    for line in lines:
+        if in_body:
+            body += line
+        elif line == "":
+            in_body = True
+    
+    if not body:
+        client.close()
+        continue
+    
+    print("[" + str(int(time.time())) + "] POST /mcp - " + body[:50] + ("..." if len(body) > 50 else ""))
+    
+    # Handle JSON-RPC methods
+    if "tools/list" in body:
+        # Build tools array
+        tools_json = "["
+        for i, tool in enumerate(tools):
+            if i > 0:
+                tools_json += ","
+            tools_json += tool.to_json()
+        tools_json += "]"
+        
+        result = '{"tools":' + tools_json + '}'
+        response_obj = JSONRPCResponse("1", result)
+        response_json = response_obj.to_json()
+        
+        response = "HTTP/1.1 200 OK\r\n"
+        response += "Content-Type: application/json\r\n"
+        response += "Content-Length: " + str(len(response_json)) + "\r\n\r\n"
+        response += response_json
+        
+        client.send(response)
+        client.close()
+        continue
+    
+    elif "tools/call" in body:
+        # Execute tool (non-streaming version for quick results)
+        output = ""
+        
+        if "math_eval" in body:
+            if '"expr":"' in body:
+                start = body.find('"expr":"') + 8
+                end = body.find('"', start)
+                expr = body[start:end]
+                result_val = ""
+                if "+" in expr:
+                    parts = expr.split("+")
+                    result_val = str(float(parts[0]) + float(parts[1]))
+                elif "*" in expr:
+                    parts = expr.split("*")
+                    result_val = str(float(parts[0]) * float(parts[1]))
+                else:
+                    result_val = expr
+                output = '{"expression":"' + expr + '","result":"' + result_val + '"}'
+            else:
+                output = '{"error":"Missing expr parameter"}'
+        
+        elif "timestamp" in body:
+            ts = str(int(time.time()))
+            output = '{"timestamp":' + ts + '}'
+        
+        elif "stream_" in body:
+            # For streaming tools, return instructions to use SSE endpoint
+            if "stream_compute" in body:
+                output = '{"message":"Use GET /stream/compute?iterations=N for streaming","endpoint":"/stream/compute"}'
+            elif "stream_tokens" in body:
+                output = '{"message":"Use GET /stream/tokens?text=YOUR_TEXT for streaming","endpoint":"/stream/tokens"}'
+            elif "stream_file" in body:
+                output = '{"message":"Use GET /stream/file?filename=NAME for streaming","endpoint":"/stream/file"}'
+        
+        else:
+            error = JSONRPCError("1", ERROR_METHOD_NOT_FOUND, "Tool not found")
+            error_json = error.to_json()
+            
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(error_json)) + "\r\n\r\n"
+            response += error_json
+            
+            client.send(response)
+            client.close()
+            continue
+        
+        # Wrap output in result
+        result = '{"output":' + output + '}'
+        response_obj = JSONRPCResponse("1", result)
+        response_json = response_obj.to_json()
+        
+        response = "HTTP/1.1 200 OK\r\n"
+        response += "Content-Type: application/json\r\n"
+        response += "Content-Length: " + str(len(response_json)) + "\r\n\r\n"
+        response += response_json
+        
+        client.send(response)
+        client.close()
+        continue
+    
+    else:
+        # Invalid method
+        error = JSONRPCError("1", ERROR_INVALID_REQUEST, "Invalid JSON-RPC request")
+        error_json = error.to_json()
+        
+        response = "HTTP/1.1 200 OK\r\n"
+        response += "Content-Type: application/json\r\n"
+        response += "Content-Length: " + str(len(error_json)) + "\r\n\r\n"
+        response += error_json
+        
+        client.send(response)
+    
+    client.close()

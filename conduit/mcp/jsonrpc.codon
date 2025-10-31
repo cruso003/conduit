@@ -1,0 +1,62 @@
+class JSONRPCRequest:
+    jsonrpc: str
+    method: str
+    id: str
+    params: str
+    
+    def __init__(self, method: str, id: str, params: str = "{}"):
+        self.jsonrpc = "2.0"
+        self.method = method
+        self.id = id
+        self.params = params
+    
+    def to_json(self) -> str:
+        result = '{"jsonrpc":"' + self.jsonrpc + '"'
+        result += ',"method":"' + self.method + '"'
+        result += ',"id":"' + self.id + '"'
+        result += ',"params":' + self.params + '}'
+        return result
+
+
+class JSONRPCResponse:
+    jsonrpc: str
+    id: str
+    result: str
+    
+    def __init__(self, id: str, result: str):
+        self.jsonrpc = "2.0"
+        self.id = id
+        self.result = result
+    
+    def to_json(self) -> str:
+        msg = '{"jsonrpc":"' + self.jsonrpc + '"'
+        msg += ',"id":"' + self.id + '"'
+        msg += ',"result":' + self.result + '}'
+        return msg
+
+
+class JSONRPCError:
+    jsonrpc: str
+    id: str
+    code: int
+    message: str
+    
+    def __init__(self, id: str, code: int, message: str):
+        self.jsonrpc = "2.0"
+        self.id = id
+        self.code = code
+        self.message = message
+    
+    def to_json(self) -> str:
+        msg = '{"jsonrpc":"' + self.jsonrpc + '"'
+        msg += ',"id":"' + self.id + '"'
+        msg += ',"error":{"code":' + str(self.code)
+        msg += ',"message":"' + self.message + '"}}'
+        return msg
+
+
+ERROR_PARSE = -32700
+ERROR_INVALID_REQUEST = -32600
+ERROR_METHOD_NOT_FOUND = -32601
+ERROR_INVALID_PARAMS = -32602
+ERROR_INTERNAL = -32603
