@@ -1,0 +1,3 @@
+from conduit.net import Socket
+s = Socket()
+print("Socket imported successfully!")

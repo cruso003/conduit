@@ -3,12 +3,14 @@ class HTTPRequest:
     path: str
     headers: Dict[str, str]
     body: str
+    params: Dict[str, str]  # Path parameters extracted by router
     
     def __init__(self):
         self.method = ""
         self.path = ""
         self.headers = {}
         self.body = ""
+        self.params = {}  # Will be populated by router
     
     def get_header(self, name: str, default: str = "") -> str:
         name_lower = name.lower()

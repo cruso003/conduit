@@ -1,0 +1,6 @@
+from conduit.mcp.tool import Tool
+
+t = Tool("calculator", "Add numbers")
+print("Tool name: " + t.name)
+print("Tool JSON: " + t.to_json())
+print("Success! MCP Tool class works!")

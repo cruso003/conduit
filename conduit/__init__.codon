@@ -1,19 +1,14 @@
 """
-TurboX - Native-speed Python web framework
+Conduit - Native-speed Python web framework
 
 A high-performance web framework built on Codon, delivering
 Go/Rust-level performance with Python-like syntax.
 """
 
-# Note: For now, we'll just have version info
-# We'll add more exports as we build components
-
 VERSION = "0.1.0"
 __version__ = VERSION
 
-# This will be populated as we build components:
-# from .server.conduit import TurboX
-# from .net import Socket, SocketError
-# from .http import HTTPRequest, HTTPResponse
+# Import main framework class
+from .framework.conduit import Conduit
 
-__all__ = ["VERSION", "__version__"]
+__all__ = ["VERSION", "__version__", "Conduit"]
