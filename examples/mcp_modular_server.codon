@@ -1,0 +1,171 @@
+"""
+MCP Modular Server - Model Context Protocol
+
+Modular implementation using conduit.net and conduit.mcp modules.
+Demonstrates proper separation of concerns and reusable components.
+
+IMPORTANT: Set CODON_PATH to project root when running from examples/:
+    CODON_PATH=/path/to/TurboX codon run examples/mcp_modular_server.codon
+
+Or run from project root:
+    cd /path/to/TurboX
+    CODON_PATH=. codon run examples/mcp_modular_server.codon
+
+Test with:
+    curl http://localhost:9090/
+    curl -X POST http://localhost:9090/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":"1","method":"tools/list"}'
+    curl -X POST http://localhost:9090/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"timestamp"}}'
+"""
+
+from conduit.net import Socket
+from conduit.mcp.tool import Tool
+from conduit.mcp.jsonrpc import JSONRPCResponse, JSONRPCError, ERROR_METHOD_NOT_FOUND
+import time
+
+print("=" * 70)
+print("MCP Modular Server - Model Context Protocol")
+print("=" * 70)
+print("")
+print("Starting on http://localhost:9090")
+print("")
+
+# Create tools
+tools = [
+    Tool("calculator", "Add two numbers together"),
+    Tool("echo", "Echo back the provided message"),
+    Tool("timestamp", "Get current Unix timestamp")
+]
+
+print("Registered " + str(len(tools)) + " tools")
+print("")
+
+# Create server socket
+sock = Socket()
+sock.set_reuseaddr()
+sock.bind("0.0.0.0", 9090)
+sock.listen(5)
+
+print("Server listening...")
+print("")
+
+count = 0
+
+while True:
+    try:
+        client = sock.accept()
+        count += 1
+    except Exception as e:
+        print("Accept failed: " + str(e))
+        continue
+    
+    try:
+        data = client.recv(4096)
+        if not data:
+            client.close()
+            continue
+        
+        lines = data.split("\n")
+        if len(lines) == 0:
+            client.close()
+            continue
+        
+        parts = lines[0].split(" ")
+        if len(parts) < 2:
+            client.close()
+            continue
+        
+        method = parts[0]
+        path = parts[1]
+        print("[" + str(count) + "] " + method + " " + path)
+        
+        # Handle GET request
+        if method == "GET":
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: text/plain\r\n"
+            response += "Content-Length: 18\r\n\r\n"
+            response += "MCP Server Running"
+            client.send(response)
+            client.close()
+            continue
+        
+        # Handle POST request
+        body_start = data.find("\r\n\r\n")
+        if body_start < 0:
+            client.close()
+            continue
+        
+        body = data[body_start + 4:]
+        
+        if "tools/list" in body:
+            tools_json = "["
+            for i, tool in enumerate(tools):
+                if i > 0:
+                    tools_json += ","
+                tools_json += tool.to_json()
+            tools_json += "]"
+            
+            result = '{"tools":' + tools_json + '}'
+            response_obj = JSONRPCResponse("1", result)
+            result_json = response_obj.to_json()
+            
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(result_json)) + "\r\n\r\n"
+            response += result_json
+            
+            client.send(response)
+            client.close()
+        
+        elif "tools/call" in body:
+            if "calculator" in body:
+                output = "Result: 42"
+            elif "echo" in body:
+                output = "Echo: Hello from MCP!"
+            elif "timestamp" in body:
+                ts = str(int(time.time()))
+                output = "Timestamp: " + ts
+            else:
+                error = JSONRPCError("1", ERROR_METHOD_NOT_FOUND, "Tool not found")
+                error_json = error.to_json()
+                
+                response = "HTTP/1.1 200 OK\r\n"
+                response += "Content-Type: application/json\r\n"
+                response += "Content-Length: " + str(len(error_json)) + "\r\n\r\n"
+                response += error_json
+                
+                client.send(response)
+                client.close()
+                continue
+            
+            result = '{"output":"' + output + '"}'
+            response_obj = JSONRPCResponse("1", result)
+            result_json = response_obj.to_json()
+            
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(result_json)) + "\r\n\r\n"
+            response += result_json
+            
+            client.send(response)
+            client.close()
+        
+        else:
+            error = JSONRPCError("1", ERROR_METHOD_NOT_FOUND, "Method not found")
+            error_json = error.to_json()
+            
+            response = "HTTP/1.1 200 OK\r\n"
+            response += "Content-Type: application/json\r\n"
+            response += "Content-Length: " + str(len(error_json)) + "\r\n\r\n"
+            response += error_json
+            
+            client.send(response)
+            client.close()
+    
+    except Exception as e:
+        print("Error: " + str(e))
+        try:
+            client.close()
+        except:
+            pass
+
+
