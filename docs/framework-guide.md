@@ -140,11 +140,13 @@ def get_posts(request):
 The `HTTPRequest` object contains:
 
 ```python
-request.method      # HTTP method (GET, POST, etc.)
-request.path        # Request path
-request.headers     # Dict[str, str] of headers
-request.body        # Request body as string
-request.params      # Dict[str, str] of path parameters
+request.method        # HTTP method (GET, POST, etc.)
+request.path          # Request path
+request.headers       # Dict[str, str] of headers
+request.body          # Request body as string
+request.params        # Dict[str, str] of path parameters
+request.query         # Dict[str, str] of query parameters
+request.query_string  # Raw query string from URL
 ```
 
 **Get headers:**
@@ -155,6 +157,46 @@ def index(request):
     user_agent = request.get_header("User-Agent", "unknown")
     return {"user_agent": user_agent}
 ```
+
+**Query Parameters:**
+
+Query parameters from the URL are automatically parsed into `request.query`:
+
+```python
+@app.get("/search")
+def search(request):
+    # GET /search?q=python&limit=10
+    query = request.query.get("q", "")
+    limit = request.query.get("limit", "20")
+
+    return {
+        "query": query,
+        "limit": limit,
+        "results": "found"
+    }
+```
+
+**JSON Body Parsing:**
+
+Parse JSON request bodies using `request.parse_json()`:
+
+```python
+@app.post("/users")
+def create_user(request):
+    # Parse JSON body
+    data = request.parse_json()
+
+    name = data.get("name", "")
+    email = data.get("email", "")
+
+    return {
+        "created": "true",
+        "name": name,
+        "email": email
+    }
+```
+
+**Note:** The JSON parser currently supports simple objects with string values: `{"key": "value"}`. This matches Codon's `Dict[str, str]` type requirement.
 
 ### 5. Response Formats
 
@@ -179,6 +221,39 @@ def get_text(request):
 # Returns: Hello, World!
 # Content-Type: text/plain
 ```
+
+**Response Helper Methods:**
+
+For more control, use `HTTPResponse` helper methods:
+
+```python
+from conduit.http.response import HTTPResponse
+
+@app.get("/api/data")
+def get_data(request):
+    response = HTTPResponse()
+    return response.json({
+        "status": "success",
+        "data": "value"
+    })
+
+@app.get("/page")
+def get_page(request):
+    html = "<h1>Welcome!</h1><p>Hello from Conduit</p>"
+    response = HTTPResponse()
+    return response.html(html)
+
+@app.get("/old-url")
+def redirect_old(request):
+    response = HTTPResponse()
+    return response.redirect("/new-url", permanent=False)
+```
+
+**Available Response Methods:**
+
+- `response.json(data, status_code=200)` - Create JSON response
+- `response.html(content, status_code=200)` - Create HTML response
+- `response.redirect(location, permanent=False)` - Create redirect (302 or 301)
 
 **Important Note:** Due to Codon's strict typing, all dict values must be the same type. Use strings for mixed-type data:
 

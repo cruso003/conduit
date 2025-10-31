@@ -22,6 +22,73 @@ class HTTPResponse:
         """Set Content-Type header"""
         self.headers["Content-Type"] = content_type
     
+    def json(self, data: Dict[str, str], status_code: int = 200) -> HTTPResponse:
+        """
+        Create JSON response from dictionary
+        
+        Args:
+            data: Dictionary to serialize as JSON
+            status_code: HTTP status code (default 200)
+            
+        Returns:
+            HTTPResponse with JSON content
+        """
+        # Simple JSON serialization for Dict[str, str]
+        pairs: List[str] = []
+        for key in data:
+            value = data[key]
+            # Escape quotes in value
+            escaped_value = value.replace('"', '\\"')
+            pairs.append(f'"{key}": "{escaped_value}"')
+        
+        json_body = "{" + ", ".join(pairs) + "}"
+        
+        self.status_code = status_code
+        self.status_text = get_status_text(status_code)
+        self.body = json_body
+        self.set_content_type("application/json")
+        self.headers["Content-Length"] = str(len(json_body))
+        
+        return self
+    
+    def html(self, content: str, status_code: int = 200) -> HTTPResponse:
+        """
+        Create HTML response
+        
+        Args:
+            content: HTML content
+            status_code: HTTP status code (default 200)
+            
+        Returns:
+            HTTPResponse with HTML content
+        """
+        self.status_code = status_code
+        self.status_text = get_status_text(status_code)
+        self.body = content
+        self.set_content_type("text/html; charset=utf-8")
+        self.headers["Content-Length"] = str(len(content))
+        
+        return self
+    
+    def redirect(self, location: str, permanent: bool = False) -> HTTPResponse:
+        """
+        Create redirect response
+        
+        Args:
+            location: URL to redirect to
+            permanent: If True, use 301 (permanent), else 302 (temporary)
+            
+        Returns:
+            HTTPResponse with redirect
+        """
+        self.status_code = 301 if permanent else 302
+        self.status_text = get_status_text(self.status_code)
+        self.body = ""
+        self.set_header("Location", location)
+        self.headers["Content-Length"] = "0"
+        
+        return self
+    
     def to_bytes(self) -> str:
         """
         Convert response to HTTP/1.1 format string

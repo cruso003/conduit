@@ -1,0 +1,148 @@
+"""
+Test Enhanced Request Features
+
+Demonstrates query parameters and JSON body parsing
+"""
+
+from conduit import Conduit
+from conduit.net.socket import Socket
+from conduit.http.request import parse_http_request
+
+app = Conduit()
+
+@app.get("/search")
+def search(request):
+    # Access query parameters
+    query = request.query.get("q", "")
+    limit = request.query.get("limit", "10")
+    
+    return {
+        "query": query,
+        "limit": limit,
+        "results": "found"
+    }
+
+@app.get("/filter")
+def filter_data(request):
+    # Multiple query parameters
+    category = request.query.get("category", "all")
+    sort = request.query.get("sort", "date")
+    order = request.query.get("order", "desc")
+    
+    return {
+        "category": category,
+        "sort": sort,
+        "order": order
+    }
+
+@app.post("/api/create")
+def create(request):
+    # Parse JSON body
+    data = request.parse_json()
+    
+    name = data.get("name", "")
+    email = data.get("email", "")
+    
+    return {
+        "created": "true",
+        "name": name,
+        "email": email
+    }
+
+@app.post("/api/update")
+def update(request):
+    # Access both path params and JSON body
+    data = request.parse_json()
+    
+    return {
+        "status": "updated",
+        "fields": str(len(data))
+    }
+
+@app.get("/info")
+def info(request):
+    # Show request details
+    return {
+        "method": request.method,
+        "path": request.path,
+        "query_string": request.query_string,
+        "has_body": "true" if request.body else "false"
+    }
+
+def start_server():
+    sock = Socket()
+    sock.set_reuseaddr()
+    sock.bind("0.0.0.0", 8001)
+    sock.listen(128)
+    
+    print("")
+    print("=" * 70)
+    print("Conduit - Enhanced Request Features Test")
+    print("=" * 70)
+    print("")
+    print("Server running at http://0.0.0.0:8001")
+    print("")
+    print("Registered routes:")
+    for route in app.route_info:
+        print(f"  {route.method:6} {route.pattern}")
+    print("")
+    print("Test commands:")
+    print("  curl 'http://localhost:8001/search?q=codon&limit=20'")
+    print("  curl 'http://localhost:8001/filter?category=tech&sort=name&order=asc'")
+    print("  curl -X POST http://localhost:8001/api/create -d '{\"name\":\"John\",\"email\":\"john@example.com\"}'")
+    print("  curl http://localhost:8001/info")
+    print("")
+    
+    count = 0
+    running = True
+    
+    while running:
+        try:
+            client = sock.accept()
+            count += 1
+            
+            data = client.recv(4096)
+            if len(data) == 0:
+                client.close()
+                continue
+            
+            request = parse_http_request(data)
+            print(f"[{count}] {request.method} {request.path}")
+            if request.query_string:
+                print(f"      Query: {request.query_string}")
+            
+            # Match route
+            matched, route_idx, params = app.match_route(request)
+            
+            response = None
+            if matched:
+                if route_idx == 0:  # /search
+                    response = app.to_response(search(request))
+                elif route_idx == 1:  # /filter
+                    response = app.to_response(filter_data(request))
+                elif route_idx == 2:  # POST /api/create
+                    response = app.to_response(create(request))
+                elif route_idx == 3:  # POST /api/update
+                    response = app.to_response(update(request))
+                elif route_idx == 4:  # /info
+                    response = app.to_response(info(request))
+                else:
+                    response = app.error_response("Unknown route")
+            else:
+                response = app.not_found_response()
+            
+            client.send(response.to_bytes())
+            client.close()
+            
+        except Exception as e:
+            print(f"[Error] {e}")
+            try:
+                client.close()
+            except:
+                pass
+    
+    sock.close()
+    print("Server stopped.")
+
+if __name__ == "__main__":
+    start_server()
