@@ -1,6 +1,6 @@
 # Building the World's First Compile-Time Web Framework: Week 1
 
-*How we built a Codon compiler plugin in one week - from zero to working implementation*
+_How we built a Codon compiler plugin in one week - from zero to working implementation_
 
 ---
 
@@ -21,6 +21,7 @@ This is Week 1 of our journey to make that vision real.
 Codon is a compiled language - Python syntax, native performance. To build a truly compile-time optimized framework, we need to hook into the compilation process itself. That means building a **C++ compiler plugin**.
 
 The challenges:
+
 1. **Unknown Territory**: No prior Codon plugin experience
 2. **Complex API**: Intermediate Representation (IR) transformations
 3. **High Stakes**: Plugin crashes = compilation crashes
@@ -35,12 +36,14 @@ The challenges:
 We dove into Codon's plugin architecture. Studied the official docs, analyzed example plugins, read through built-in optimization passes. Key findings:
 
 **The Good News**:
+
 - Codon has a mature plugin API
 - Plugins are dynamic shared libraries
 - Clean separation between passes and pipeline
 - Great example to learn from
 
 **The Surprise**:
+
 - Codon headers require C++20 (not C++17)
 - Plugin runs during IR transformation phase
 - Full access to typed intermediate representation
@@ -49,6 +52,7 @@ We dove into Codon's plugin architecture. Studied the official docs, analyzed ex
 **The Gold Mine**: [example-codon-plugin](https://github.com/exaloop/example-codon-plugin)
 
 This 50-line example showed us exactly what we needed:
+
 ```cpp
 class MyPass : public transform::OperatorPass {
     void handle(AssignInstr *v) override {
@@ -90,6 +94,7 @@ set(CMAKE_CXX_STANDARD 20)  # Not 17!
 **Second Gotcha**: Where's LLVM? CMake couldn't find LLVM configs. Turns out Codon has it embedded - no external LLVM needed. Documented the warning as harmless.
 
 **Build Success**:
+
 ```bash
 mkdir build && cd build
 cmake .. && make
@@ -118,17 +123,19 @@ public:
 ```
 
 Installed it:
+
 ```bash
 make install
 # Installing: ~/.codon/lib/codon/plugins/conduit/
 ```
 
 Then the test:
+
 ```bash
 codon run -plugin conduit my_app.codon
 ```
 
-**AND IT WORKED!** 
+**AND IT WORKED!**
 
 ```
 ╔════════════════════════════════════════╗
@@ -152,7 +159,7 @@ Final step: verify the plugin doesn't break anything. Tested all framework featu
 curl http://localhost:8000/
 {"message": "Hello, World!", "framework": "Conduit"}
 
-# Path parameters  
+# Path parameters
 curl http://localhost:8000/users/456
 {"user_id": "456", "name": "User 456", ...}
 
@@ -164,8 +171,9 @@ curl 'http://localhost:8000/search?q=routing&limit=5'
 **Everything worked perfectly.** Zero runtime impact. Zero behavioral changes. The plugin is purely observing at this stage.
 
 Then we documented everything:
+
 - 719-line research document
-- Technical architecture guide  
+- Technical architecture guide
 - Build instructions
 - API reference
 - This blog post
@@ -177,18 +185,21 @@ Then we documented everything:
 ### Technical Insights
 
 1. **Codon's IR is Beautiful**
+
    - Fully typed intermediate representation
    - Clean node hierarchy
    - Bidirectional transformations
    - Perfect for optimization
 
 2. **The Pass System is Powerful**
+
    - `OperatorPass`: Visitor pattern for each IR node type
    - `Pass`: Manual module traversal
    - Can insert passes anywhere in pipeline
    - Full control over optimization order
 
 3. **C++20 is Required**
+
    - Codon headers use `std::ranges`
    - Not optional
    - Update your CMakeLists!
@@ -202,11 +213,13 @@ Then we documented everything:
 ### Development Insights
 
 1. **Start with the Example**
+
    - Don't reinvent the wheel
    - The official example is gold
    - Copy the structure, adapt gradually
 
 2. **Verify at Every Step**
+
    - Build succeeds? ✅
    - Install works? ✅
    - Plugin loads? ✅
@@ -222,6 +235,7 @@ Then we documented everything:
 ## The Numbers
 
 **Time Spent**:
+
 - Research: 2 days
 - Setup: 1 day
 - Implementation: 1 day
@@ -229,6 +243,7 @@ Then we documented everything:
 - Documentation: 2 days
 
 **Code Written**:
+
 - Plugin code: 47 lines
 - Build config: 85 lines
 - Documentation: 1000+ lines
@@ -244,13 +259,16 @@ Then we documented everything:
 Week 1 gave us the foundation. Week 2 is where things get interesting:
 
 ### Week 2: Route Detection
+
 We'll build a pass that:
+
 - Detects `@app.get("/path")` decorators in the IR
 - Extracts route information (method, path, handler)
 - Stores routes for dispatch generation
 - Verifies detection with debug output
 
 **The Challenge**: Decorators in IR are complex. We need to:
+
 1. Identify `CallInstr` nodes that represent decorators
 2. Extract the path pattern string
 3. Find the HTTP method (get, post, etc.)
@@ -258,7 +276,9 @@ We'll build a pass that:
 5. Handle all decorator variations
 
 ### Week 3: Dispatch Generation
+
 Once we can detect routes, we generate the dispatcher:
+
 ```codon
 def conduit_dispatch(method: str, path: str, req: Request) -> Response:
     if method == "GET" and path == "/":
@@ -269,7 +289,9 @@ def conduit_dispatch(method: str, path: str, req: Request) -> Response:
 ```
 
 ### Week 4: Optimization
+
 Finally, we optimize:
+
 - Perfect hash functions for O(1) lookup
 - Inline small handlers
 - Compile-time path parsing
@@ -286,6 +308,7 @@ Web frameworks have been doing runtime routing for decades. Flask, Express, Rail
 **Conduit flips the script.**
 
 By moving these decisions to compile-time:
+
 - **Faster**: No runtime matching overhead
 - **Smaller**: No routing tables in memory
 - **Safer**: Route errors caught at compile-time
@@ -322,11 +345,13 @@ See that beautiful banner? You're now running compile-time optimized routing.
 ## Reflections
 
 A week ago, we had:
+
 - No Codon plugin experience
-- No IR transformation knowledge  
+- No IR transformation knowledge
 - No idea if this was even possible
 
 Today, we have:
+
 - A working compiler plugin
 - Deep understanding of Codon's IR
 - Proof of concept for compile-time optimization
@@ -345,12 +370,14 @@ And we're building it.
 ## Follow Along
 
 This is Week 1 of a 4-week series:
+
 - ✅ **Week 1**: Hello World Plugin (you are here)
-- ⏭️ **Week 2**: Route Detection  
+- ⏭️ **Week 2**: Route Detection
 - ⏭️ **Week 3**: Dispatch Generation
 - ⏭️ **Week 4**: Optimization & Perfect Hashing
 
-Want to follow the journey? 
+Want to follow the journey?
+
 - GitHub: [conduit framework](https://github.com/cruso003/conduit)
 - Branch: `feature/framework-core`
 - Docs: `docs/CODON_PLUGIN_RESEARCH.md`
@@ -361,4 +388,4 @@ Want to follow the journey?
 **Status**: Week 1 ✅ Complete  
 **Next**: Week 2 - Route Detection
 
-*The future compiles at build time.* 🚀
+_The future compiles at build time._ 🚀
