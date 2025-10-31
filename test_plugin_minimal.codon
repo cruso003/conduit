@@ -1,0 +1,48 @@
+"""
+Minimal test for plugin - no framework imports
+Just the decorator pattern the plugin needs to detect
+"""
+
+# Simulate the metadata function the plugin looks for
+def add_route_metadata(pattern: str, method: str, handler_name: str):
+    pass
+
+# Minimal app class with decorators
+class App:
+    def get(self, pattern: str):
+        def decorator(handler):
+            add_route_metadata(pattern, "GET", handler.__name__)
+            return handler
+        return decorator
+    
+    def post(self, pattern: str):
+        def decorator(handler):
+            add_route_metadata(pattern, "POST", handler.__name__)
+            return handler
+        return decorator
+    
+    def put(self, pattern: str):
+        def decorator(handler):
+            add_route_metadata(pattern, "PUT", handler.__name__)
+            return handler
+        return decorator
+
+app = App()
+
+@app.get("/")
+def index(request):
+    return "Index"
+
+@app.post("/users")
+def create_user(request):
+    return "Created"
+
+@app.get("/users/:id")
+def get_user(request):
+    return "User"
+
+@app.put("/users/:id")
+def update_user(request):
+    return "Updated"
+
+print("✅ Routes defined - compile with: codon build -plugin conduit test_plugin_minimal.codon")
