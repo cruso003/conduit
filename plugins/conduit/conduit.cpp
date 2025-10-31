@@ -6,6 +6,7 @@
 
 #include "codon/cir/transform/pass.h"
 #include "codon/cir/util/irtools.h"
+#include "codon/cir/const.h"
 #include "codon/dsl/dsl.h"
 #include <iostream>
 #include <vector>
@@ -72,11 +73,14 @@ public:
                 // Try to extract the string constant
                 std::string path = "<unknown>";
                 
-                // The path might be a StrConst value - let's try to cast it
-                // TODO: This needs proper IR string constant extraction
-                // For now, store with placeholder
+                // Check if the argument is a StringConst
+                if (auto *strConst = cast<StringConst>(pathArg)) {
+                    path = strConst->getVal();
+                }
+                // If not a direct constant, it might be wrapped in another value type
+                // We'll handle that case later if needed
                 
-                // For now, just record that we found a route
+                // Record the route we found
                 routes.emplace_back(methodName, path, "<handler>", nullptr);
             }
         }
