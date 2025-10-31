@@ -29,6 +29,8 @@ struct RouteInfo {
 class ConduitRouteDetector : public transform::OperatorPass {
 private:
     std::vector<RouteInfo> routes;
+    // Temporary storage to match decorator calls with handler names
+    std::vector<std::pair<std::string, std::string>> pendingRoutes; // (method, path)
 
 public:
     static const std::string KEY;
@@ -44,11 +46,39 @@ public:
         
         std::string funcName = func->getUnmangledName();
         
-        // Check if this is a Conduit route decorator method
-        // The function names appear as just "get", "post", etc. (2 args: self, path)
+        // Strategy 1: Detect add_route_metadata calls to get handler names
+        if (funcName == "add_route_metadata" && v->numArgs() >= 4) {
+            auto args = v->begin();
+            ++args; // skip self
+            
+            auto *patternArg = *args; ++args;
+            auto *methodArg = *args; ++args;
+            auto *nameArg = *args;
+            
+            std::string method = "<unknown>";
+            std::string handlerName = "<unknown>";
+            
+            // Method and handler name should be string constants
+            if (auto *methodConst = cast<StringConst>(methodArg)) {
+                method = methodConst->getVal();
+            }
+            if (auto *nameConst = cast<StringConst>(nameArg)) {
+                handlerName = nameConst->getVal();
+            }
+            
+            // Find matching route from pendingRoutes and update it
+            for (auto &route : routes) {
+                if (route.method == method && route.handler_name == "<handler>") {
+                    route.handler_name = handlerName;
+                    break;
+                }
+            }
+            return;
+        }
+        
+        // Strategy 2: Detect decorator creation calls to get method + path
         std::string methodName;
         
-        // Match exact method names with 2 arguments (self + path)
         if (v->numArgs() == 2) {
             if (funcName == "get") {
                 methodName = "GET";
@@ -64,23 +94,19 @@ public:
         }
         
         if (!methodName.empty()) {
-            // Extract path from second argument (first is self)
             if (v->numArgs() >= 2) {
                 auto args = v->begin();
                 ++args; // Skip self
                 auto *pathArg = *args;
                 
-                // Try to extract the string constant
                 std::string path = "<unknown>";
                 
-                // Check if the argument is a StringConst
                 if (auto *strConst = cast<StringConst>(pathArg)) {
                     path = strConst->getVal();
                 }
-                // If not a direct constant, it might be wrapped in another value type
-                // We'll handle that case later if needed
                 
-                // Record the route we found
+                // Add route with placeholder handler name
+                // This will be filled in by add_route_metadata call
                 routes.emplace_back(methodName, path, "<handler>", nullptr);
             }
         }
