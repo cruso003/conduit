@@ -1,0 +1,99 @@
+from C import socket(int, int, int) -> int as c_socket
+from C import bind(int, cobj, u32) -> int as c_bind
+from C import listen(int, int) -> int as c_listen
+from C import accept(int, cobj, cobj) -> int as c_accept
+from C import recv(int, cobj, int, int) -> int as c_recv
+from C import send(int, cobj, int, int) -> int as c_send
+from C import close(int) -> int as c_close
+from C import setsockopt(int, int, int, cobj, u32) -> int as c_setsockopt
+from C import htons(u16) -> u16
+
+AF_INET = 2
+SOCK_STREAM = 1
+SOL_SOCKET = 65535
+SO_REUSEADDR = 4
+
+class Socket:
+    fd: int
+    
+    def __init__(self):
+        self.fd = c_socket(AF_INET, SOCK_STREAM, 0)
+    
+    def bind(self, host: str, port: int):
+        addr = Array[byte](16)
+        port_be = int(htons(u16(port)))
+        addr[0] = byte(16)
+        addr[1] = byte(AF_INET)
+        addr[2] = byte(port_be & 0xFF)
+        addr[3] = byte((port_be >> 8) & 0xFF)
+        for i in range(4, 16):
+            addr[i] = byte(0)
+        c_bind(self.fd, addr.ptr, u32(16))
+    
+    def listen(self, backlog: int):
+        c_listen(self.fd, backlog)
+    
+    def set_reuseaddr(self):
+        optval = Array[byte](4)
+        optval[0] = byte(1)
+        for i in range(1, 4):
+            optval[i] = byte(0)
+        c_setsockopt(self.fd, SOL_SOCKET, SO_REUSEADDR, optval.ptr, u32(4))
+    
+    def accept(self) -> Socket:
+        print("Accept: Creating addr array")
+        addr = Array[byte](16)
+        print("Accept: Creating addrlen array")
+        addrlen = Array[u32](1)
+        addrlen[0] = u32(16)
+        print("Accept: Calling c_accept with fd=" + str(self.fd))
+        print("Accept: addr.ptr type check")
+        print("Accept: About to call c_accept...")
+        client_fd = c_accept(self.fd, addr.ptr, addr.ptr)  # Try using addr.ptr for both
+        print("Accept: c_accept returned fd=" + str(client_fd))
+        print("Accept: Creating new Socket")
+        client = Socket.__new__()
+        print("Accept: Setting fd")
+        client.fd = client_fd
+        print("Accept: Returning client")
+        return client
+    
+    def recv(self, size: int) -> str:
+        buffer = Array[byte](size)
+        n = c_recv(self.fd, buffer.ptr, size, 0)
+        if n <= 0:
+            return ""
+        return str(buffer.ptr, n)
+    
+    def send(self, data: str) -> int:
+        return c_send(self.fd, data.ptr, len(data), 0)
+    
+    def close(self):
+        if self.fd >= 0:
+            c_close(self.fd)
+
+print("Creating socket...")
+sock = Socket()
+sock.set_reuseaddr()
+sock.bind("0.0.0.0", 9000)
+sock.listen(5)
+
+print("Listening on port 9000")
+print("Waiting for connection...")
+
+try:
+    client = sock.accept()
+    print("Connection accepted!")
+    
+    data = client.recv(4096)
+    print("Received " + str(len(data)) + " bytes")
+    
+    response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
+    client.send(response)
+    client.close()
+    print("Response sent, connection closed")
+except Exception as e:
+    print("Error: " + str(e))
+
+sock.close()
+print("Server closed")

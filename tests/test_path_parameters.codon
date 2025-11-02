@@ -1,0 +1,56 @@
+# Week 6 Day 3 Test: Path Parameters
+
+# Mock classes for testing
+class Request:
+    def __init__(self):
+        pass
+
+class App:
+    routes: List[Tuple[str, str, str]]
+    
+    def __init__(self):
+        self.routes = []
+    
+    def get(self, path: str):
+        def decorator(handler):
+            # Store handler name using __name__ attribute
+            handler_name = handler.__name__
+            add_route_metadata(path, "GET", handler_name)
+            return handler
+        return decorator
+    
+    def post(self, path: str):
+        def decorator(handler):
+            handler_name = handler.__name__
+            add_route_metadata(path, "POST", handler_name)
+            return handler
+        return decorator
+
+def add_route_metadata(pattern: str, method: str, handler_name: str):
+    """Placeholder for plugin to detect routes"""
+    pass
+
+app = App()
+
+# Routes with path parameters
+@app.get("/")
+def home(req: str) -> str:
+    return "Welcome home!"
+
+@app.get("/users/:id")
+def get_user(req: str) -> str:
+    return "User details"
+
+@app.post("/users/:id/posts/:post_id")
+def create_post(req: str) -> str:
+    return "Post created"
+
+@app.get("/api/:version/items/:item_id")
+def get_item(req: str) -> str:
+    return "Item details"
+
+@app.get("/about")
+def about(req: str) -> str:
+    return "About page"
+
+print("Routes with path parameters test")

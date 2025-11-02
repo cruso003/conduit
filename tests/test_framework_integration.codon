@@ -1,0 +1,93 @@
+"""
+Framework Integration Test: Phase 1.4 - End-to-End Test
+
+Test that the plugin-generated dispatch works with the framework.
+This is the FIRST working integration of plugin + framework!
+"""
+
+# Import types first (before framework to ensure 404 handler is compiled)
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+# Define 404 handler BEFORE importing Conduit (so plugin can find it)
+def handle_404(path: str = "") -> HTTPResponse:
+    """Fallback handler for 404 responses"""
+    if path:
+        body = '{"error": "Not Found", "path": "' + path + '", "status": 404}'
+    else:
+        body = '{"error": "Not Found", "status": 404}'
+    response = HTTPResponse(404, body)
+    response.set_content_type("application/json")
+    return response
+
+# Now import framework (this triggers the plugin)
+from conduit import Conduit
+
+app = Conduit(port=8080)
+
+# Define handlers with proper type signatures
+@app.get("/")
+def home(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"message": "Hello from integrated plugin!"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/about")
+def about(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"page": "about", "version": "0.2.0"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.post("/submit")
+def submit(request: HTTPRequest) -> HTTPResponse:
+    # Parse JSON body
+    data = request.parse_json()
+    
+    # Extract fields with defaults
+    name = data.get("name", "unknown")
+    email = data.get("email", "no-email")
+    
+    # Build response with received data
+    response_body = '{"status": "created", "received": {"name": "' + name + '", "email": "' + email + '"}}'
+    response = HTTPResponse(201, response_body)
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/users/:id")
+def get_user(request: HTTPRequest) -> HTTPResponse:
+    user_id = request.params.get("id", "unknown")
+    body = '{"user_id": "' + user_id + '", "name": "User ' + user_id + '"}'
+    response = HTTPResponse(200, body)
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/search")
+def search(request: HTTPRequest) -> HTTPResponse:
+    # Test query parameter extraction
+    query_term = request.query.get("q", "")
+    page = request.query.get("page", "1")
+    limit = request.query.get("limit", "10")
+    
+    body = '{"query": "' + query_term + '", "page": ' + page + ', "limit": ' + limit + ', "results": []}'
+    response = HTTPResponse(200, body)
+    response.set_content_type("application/json")
+    return response
+
+# Print detected routes
+print("\n" + "=" * 70)
+print("Conduit Framework + Plugin Integration Test")
+print("=" * 70)
+print("\nRoutes registered:")
+for info in app.route_info:
+    print(f"  {info.method:6} {info.pattern}")
+
+print("\n✅ If you see plugin output above, the integration is working!")
+print("\nTo test the server:")
+print("  1. Compile: codon build -plugin conduit tests/test_framework_integration.codon -o test_server")
+print("  2. Run: ./test_server")
+print("  3. Test: curl http://localhost:8080/")
+print("")
+
+# Run server
+if __name__ == "__main__":
+    app.run()

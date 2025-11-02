@@ -1,0 +1,49 @@
+"""
+Framework Integration Test: Phase 1.1
+
+Test that the framework decorators call add_route_metadata()
+which the plugin can detect and optimize.
+"""
+
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit()
+
+# Define handlers
+@app.get("/")
+def home(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"message": "Hello, World!"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/about")
+def about(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"page": "about"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.post("/submit")
+def submit(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(201, '{"status": "created"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/users/:id")
+def get_user(request: HTTPRequest) -> HTTPResponse:
+    user_id = request.params.get("id", "unknown")
+    body = '{"user_id": "' + user_id + '"}'
+    response = HTTPResponse(200, body)
+    response.set_content_type("application/json")
+    return response
+
+# Don't start server - just test compilation
+print("Routes registered:")
+for info in app.route_info:
+    print(f"  {info.method:6} {info.pattern}")
+
+print("")
+print("Test compilation complete!")
+print("")
+print("If you see plugin output above, the integration is working!")

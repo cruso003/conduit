@@ -1,0 +1,142 @@
+"""
+Test Response Helper Methods
+
+Demonstrates response.json(), response.html(), response.redirect()
+"""
+
+from conduit import Conduit
+from conduit.net.socket import Socket
+from conduit.http.request import parse_http_request
+from conduit.http.response import HTTPResponse
+
+app = Conduit()
+
+@app.get("/api/json")
+def json_test(request):
+    # Use response.json() helper
+    response = HTTPResponse()
+    return response.json({
+        "status": "success",
+        "data": "This was created with response.json()",
+        "method": request.method
+    })
+
+@app.get("/page")
+def html_test(request):
+    # Use response.html() helper
+    html = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Conduit Test</title>
+</head>
+<body>
+    <h1>Welcome to Conduit!</h1>
+    <p>This HTML was created with response.html()</p>
+    <ul>
+        <li><a href="/api/json">JSON API</a></li>
+        <li><a href="/old-page">Redirect Test</a></li>
+        <li><a href="/">Back Home</a></li>
+    </ul>
+</body>
+</html>"""
+    
+    response = HTTPResponse()
+    return response.html(html)
+
+@app.get("/old-page")
+def redirect_test(request):
+    # Use response.redirect() helper
+    response = HTTPResponse()
+    return response.redirect("/page", permanent=False)
+
+@app.get("/moved")
+def permanent_redirect(request):
+    # Permanent redirect (301)
+    response = HTTPResponse()
+    return response.redirect("/page", permanent=True)
+
+@app.get("/")
+def index(request):
+    # Still works with dict return (auto JSON)
+    return {
+        "message": "Response Helper Test",
+        "endpoints": "4",
+        "features": "json, html, redirect"
+    }
+
+def start_server():
+    sock = Socket()
+    sock.set_reuseaddr()
+    sock.bind("0.0.0.0", 8002)
+    sock.listen(128)
+    
+    print("")
+    print("=" * 70)
+    print("Conduit - Response Helper Methods Test")
+    print("=" * 70)
+    print("")
+    print("Server running at http://0.0.0.0:8002")
+    print("")
+    print("Registered routes:")
+    for route in app.route_info:
+        print(f"  {route.method:6} {route.pattern}")
+    print("")
+    print("Test commands:")
+    print("  curl http://localhost:8002/")
+    print("  curl http://localhost:8002/api/json")
+    print("  curl http://localhost:8002/page")
+    print("  curl -i http://localhost:8002/old-page  # Shows redirect")
+    print("  curl -i http://localhost:8002/moved     # Shows 301")
+    print("")
+    
+    count = 0
+    running = True
+    
+    while running:
+        try:
+            client = sock.accept()
+            count += 1
+            
+            data = client.recv(4096)
+            if len(data) == 0:
+                client.close()
+                continue
+            
+            request = parse_http_request(data)
+            print(f"[{count}] {request.method} {request.path}")
+            
+            # Match route
+            matched, route_idx, params = app.match_route(request)
+            
+            response = None
+            if matched:
+                if route_idx == 0:  # /api/json
+                    response = json_test(request)
+                elif route_idx == 1:  # /page
+                    response = html_test(request)
+                elif route_idx == 2:  # /old-page
+                    response = redirect_test(request)
+                elif route_idx == 3:  # /moved
+                    response = permanent_redirect(request)
+                elif route_idx == 4:  # /
+                    response = app.to_response(index(request))
+                else:
+                    response = app.error_response("Unknown route")
+            else:
+                response = app.not_found_response()
+            
+            client.send(response.to_bytes())
+            client.close()
+            
+        except Exception as e:
+            print(f"[Error] {e}")
+            try:
+                client.close()
+            except:
+                pass
+    
+    sock.close()
+    print("Server stopped.")
+
+if __name__ == "__main__":
+    start_server()

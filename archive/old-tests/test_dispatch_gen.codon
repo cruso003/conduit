@@ -1,0 +1,27 @@
+# Simple test to see plugin dispatch generation
+# No framework imports - just decorator-like function calls
+
+class FakeApp:
+    def get(self, path: str):
+        print("Decorator called: GET", path)
+        return lambda f: f
+    
+    def post(self, path: str):
+        print("Decorator called: POST", path)
+        return lambda f: f
+
+app = FakeApp()
+
+@app.get("/")
+def index(request):
+    return "Index"
+
+@app.post("/users")
+def create_user(request):
+    return "User created"
+
+@app.get("/users/:id")
+def get_user(request):
+    return "User details"
+
+print("Routes defined")

@@ -1,0 +1,43 @@
+"""
+More comprehensive route detection test
+"""
+
+from conduit.framework.conduit import Conduit
+
+app = Conduit()
+
+@app.get("/")
+def index(request):
+    return {"message": "Home"}
+
+@app.get("/api/v1/users")
+def list_users(request):
+    return {"users": []}
+
+@app.post("/api/v1/users")
+def create_user(request):
+    return {"created": True}
+
+@app.get("/users/:id")
+def get_user(request):
+    return {"user": request.params.get("id", "")}
+
+@app.put("/users/:id")
+def update_user(request):
+    return {"updated": True}
+
+@app.delete("/users/:id")
+def delete_user(request):
+    return {"deleted": True}
+
+@app.patch("/users/:id/profile")
+def patch_profile(request):
+    return {"patched": True}
+
+@app.get("/search/:category/:term")
+def search(request):
+    category = request.params.get("category", "")
+    term = request.params.get("term", "")
+    return {"category": category, "term": term}
+
+print("All routes registered!")

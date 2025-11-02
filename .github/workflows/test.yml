@@ -21,7 +21,7 @@ jobs:
       - name: Verify Codon Installation
         run: codon --version
 
-      - name: Build TurboX
+      - name: Build Conduit
         run: ./scripts/build.sh
 
       - name: Run Tests

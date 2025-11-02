@@ -1,0 +1,117 @@
+"""
+Milestone 3: Automatic Dispatch - Prototype
+
+Testing a handler wrapper approach that works within Codon's type constraints.
+
+Key Insight: Instead of storing function pointers, store handler indices
+and call through a single unified dispatch function.
+"""
+
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit()
+
+# Define handlers
+@app.get("/")
+def index(request):
+    return {"message": "Hello, World!"}
+
+@app.get("/users")
+def get_users(request):
+    return {"users": "2", "status": "active"}
+
+@app.get("/users/:id")
+def get_user(request):
+    user_id = request.params.get("id", "")
+    return {"user_id": user_id, "name": f"User {user_id}"}
+
+@app.post("/users")
+def create_user(request):
+    return {"created": "true", "message": "User created"}
+
+@app.get("/health")
+def health(request):
+    return {"status": "healthy", "version": "0.1.0"}
+
+# The magic: A single dispatch function that knows all handlers
+def dispatch_handler(route_idx: int, request: HTTPRequest):
+    """
+    Central dispatch function - all handlers called through here.
+    This is the only place we need manual if/elif.
+    
+    The Conduit class will call this automatically.
+    """
+    if route_idx == 0:
+        return index(request)
+    elif route_idx == 1:
+        return get_users(request)
+    elif route_idx == 2:
+        return get_user(request)
+    elif route_idx == 3:
+        return create_user(request)
+    elif route_idx == 4:
+        return health(request)
+    else:
+        return {"error": "Unknown route"}
+
+# Register the dispatch function with the app
+app.set_dispatch_handler(dispatch_handler)
+
+# Now start server - it should automatically dispatch!
+if __name__ == "__main__":
+    from conduit.net.socket import Socket
+    from conduit.http.request import parse_http_request
+    
+    sock = Socket()
+    sock.set_reuseaddr()
+    sock.bind("0.0.0.0", 8003)
+    sock.listen(128)
+    
+    print("")
+    print("=" * 70)
+    print("Milestone 3: Automatic Dispatch Test")
+    print("=" * 70)
+    print("")
+    print("Server running at http://0.0.0.0:8003")
+    print("")
+    print("Registered routes:")
+    for route in app.route_info:
+        print(f"  {route.method:6} {route.pattern}")
+    print("")
+    print("✨ Now using AUTOMATIC dispatch!")
+    print("")
+    
+    count = 0
+    while True:
+        try:
+            client = sock.accept()
+            count += 1
+            
+            data = client.recv(4096)
+            if len(data) == 0:
+                client.close()
+                continue
+            
+            request = parse_http_request(data)
+            print(f"[{count}] {request.method} {request.path}")
+            
+            # Match route
+            matched, route_idx, params = app.match_route(request)
+            
+            if not matched:
+                response = app.not_found_response()
+            else:
+                # ✨ AUTOMATIC DISPATCH - no manual if/elif!
+                response = app.dispatch(request, route_idx)
+            
+            client.send(response.to_bytes())
+            client.close()
+            
+        except Exception as e:
+            print(f"[Error] {e}")
+            try:
+                client.close()
+            except:
+                pass

@@ -1,0 +1,55 @@
+"""
+Conduit - Dispatch Helper
+
+Since Codon's type system prevents storing arbitrary function pointers,
+we provide a helper to make manual dispatch cleaner and more organized.
+
+This module helps generate the boilerplate dispatch code.
+"""
+
+def generate_dispatch_code(route_count: int) -> str:
+    """
+    Generate dispatch boilerplate for N routes
+    
+    Args:
+        route_count: Number of routes to generate dispatch for
+        
+    Returns:
+        String containing the dispatch code
+    """
+    lines: List[str] = []
+    lines.append("# Auto-generated dispatch code")
+    lines.append("if matched:")
+    
+    for i in range(route_count):
+        if i == 0:
+            lines.append(f"    if route_idx == {i}:")
+        else:
+            lines.append(f"    elif route_idx == {i}:")
+        lines.append(f"        response = app.to_response(handler_{i}(request))")
+    
+    lines.append("    else:")
+    lines.append("        response = app.error_response(\"Unknown route index\")")
+    lines.append("else:")
+    lines.append("    response = app.not_found_response()")
+    
+    return "\n".join(lines)
+
+
+def print_dispatch_template(num_routes: int):
+    """Print dispatch template for copy-paste"""
+    print("")
+    print("="* 70)
+    print(f"Dispatch Template for {num_routes} Routes")
+    print("=" * 70)
+    print("")
+    print("Copy this into your server loop:")
+    print("")
+    print(generate_dispatch_code(num_routes))
+    print("")
+    print("=" * 70)
+
+
+# Example usage
+if __name__ == "__main__":
+    print_dispatch_template(5)

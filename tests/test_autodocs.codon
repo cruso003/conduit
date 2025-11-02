@@ -1,0 +1,54 @@
+"""
+Test auto-documentation integration
+"""
+
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit(port=8082)
+
+# Enable auto-documentation
+app.enable_docs(
+    title="Test API with Auto-Docs",
+    version="1.0.0",
+    description="Testing Conduit's auto-documentation feature"
+)
+
+@app.get("/")
+def index(request: HTTPRequest) -> HTTPResponse:
+    """Homepage"""
+    return HTTPResponse().json({"message": "Welcome to the API", "docs": "/docs"})
+
+@app.get("/users")
+def list_users(request: HTTPRequest) -> HTTPResponse:
+    """List all users"""
+    return HTTPResponse().json({"users": "Alice, Bob"})
+
+@app.post("/users")
+def create_user(request: HTTPRequest) -> HTTPResponse:
+    """Create a new user"""
+    data = request.parse_json()
+    return HTTPResponse(201).json({"status": "created", "data": str(data)})
+
+@app.get("/products")
+def list_products(request: HTTPRequest) -> HTTPResponse:
+    """List all products"""
+    return HTTPResponse().json({"products": "Widget, Gadget"})
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("Test API with Auto-Documentation")
+    print("="*70)
+    print("\nEndpoints:")
+    print("  • GET  /           - Homepage")
+    print("  • GET  /users      - List users")
+    print("  • POST /users      - Create user")
+    print("  • GET  /products   - List products")
+    print("\nDocumentation:")
+    print("  • Interactive UI:  http://localhost:8082/docs")
+    print("  • OpenAPI Spec:    http://localhost:8082/openapi.json")
+    print("\nPress Ctrl+C to stop")
+    print("="*70 + "\n")
+    
+    app.run()

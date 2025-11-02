@@ -1,0 +1,12 @@
+from conduit.net import Socket
+from conduit.mcp.tool import Tool
+
+print("Testing imports...")
+print("Socket import: OK")
+print("Tool import: OK")
+
+tool = Tool("test", "Test tool")
+print("Tool created: " + tool.to_json())
+
+sock = Socket()
+print("Socket created: OK")

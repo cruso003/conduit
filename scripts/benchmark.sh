@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Running TurboX benchmarks..."
+echo "Running Conduit benchmarks..."
 
 # Check dependencies
 if ! command -v wrk &> /dev/null; then

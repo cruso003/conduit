@@ -1,0 +1,49 @@
+"""
+Test middleware functionality
+"""
+
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+from conduit.http.middleware import logger_middleware, cors_middleware, timing_middleware
+
+app = Conduit(port=8081)
+
+# Register middleware in order
+app.use(logger_middleware("[MW-TEST]"))
+app.use(timing_middleware())
+app.use(cors_middleware("http://example.com"))
+
+@app.get("/")
+def index(request: HTTPRequest) -> HTTPResponse:
+    """Root handler"""
+    return HTTPResponse().json({
+        "message": "Middleware test",
+        "path": request.path
+    })
+
+@app.get("/ping")
+def ping(request: HTTPRequest) -> HTTPResponse:
+    """Ping endpoint"""
+    return HTTPResponse().json({"status": "pong"})
+
+@app.post("/echo")
+def echo(request: HTTPRequest) -> HTTPResponse:
+    """Echo POST data"""
+    data = request.parse_json()
+    return HTTPResponse().json({
+        "received": str(data),
+        "method": request.method
+    })
+
+if __name__ == "__main__":
+    print("Starting middleware test server on port 8081...")
+    print("Registered middleware:")
+    print("  1. Logger (prefix: [MW-TEST])")
+    print("  2. Timing (adds X-Response-Time header)")
+    print("  3. CORS (allows: http://example.com)")
+    print("\nTest with:")
+    print("  curl http://localhost:8081/")
+    print("  curl http://localhost:8081/ping")
+    print("  curl -X POST http://localhost:8081/echo -d '{\"test\":\"data\"}'")
+    app.run()

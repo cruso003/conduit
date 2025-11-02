@@ -1,0 +1,101 @@
+"""
+Simplified middleware support - no inheritance, just data classes
+"""
+
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+
+class LoggerMiddleware:
+    """Logging middleware"""
+    prefix: str
+    
+    def __init__(self, prefix: str = "[REQUEST]"):
+        self.prefix = prefix
+    
+    def apply(self, request: HTTPRequest, response: HTTPResponse):
+        """Log request and response"""
+        print(f"{self.prefix} {request.method} {request.path}")
+        print(f"{self.prefix} -> {response.status_code}")
+
+
+class CORSMiddleware:
+    """CORS middleware"""
+    origin: str
+    
+    def __init__(self, origin: str = "*"):
+        self.origin = origin
+    
+    def apply(self, request: HTTPRequest, response: HTTPResponse):
+        """Add CORS headers"""
+        response.set_header("Access-Control-Allow-Origin", self.origin)
+        response.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        response.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+
+class TimingMiddleware:
+    """Timing middleware"""
+    
+    def __init__(self):
+        pass
+    
+    def apply(self, request: HTTPRequest, response: HTTPResponse):
+        """Add timing header (simplified - would need start time tracking)"""
+        response.set_header("X-Response-Time", "0.00ms")
+
+
+class MiddlewareChain:
+    """Manages middleware execution"""
+    
+    loggers: List[LoggerMiddleware]
+    cors_list: List[CORSMiddleware]
+    timings: List[TimingMiddleware]
+    
+    def __init__(self):
+        self.loggers = []
+        self.cors_list = []
+        self.timings = []
+    
+    def add_logger(self, logger: LoggerMiddleware):
+        """Add logger middleware"""
+        self.loggers.append(logger)
+    
+    def add_cors(self, cors: CORSMiddleware):
+        """Add CORS middleware"""
+        self.cors_list.append(cors)
+    
+    def add_timing(self, timing: TimingMiddleware):
+        """Add timing middleware"""
+        self.timings.append(timing)
+    
+    def execute_post_process(self, request: HTTPRequest, response: HTTPResponse) -> HTTPResponse:
+        """Apply all middleware to response"""
+        # Apply loggers
+        for logger in self.loggers:
+            logger.apply(request, response)
+        
+        # Apply CORS
+        for cors in self.cors_list:
+            cors.apply(request, response)
+        
+        # Apply timing
+        for timing in self.timings:
+            timing.apply(request, response)
+        
+        return response
+
+
+# Factory functions
+def logger_middleware(prefix: str = "[REQUEST]") -> LoggerMiddleware:
+    """Create logging middleware"""
+    return LoggerMiddleware(prefix)
+
+
+def cors_middleware(origin: str = "*") -> CORSMiddleware:
+    """Create CORS middleware"""
+    return CORSMiddleware(origin)
+
+
+def timing_middleware() -> TimingMiddleware:
+    """Create timing middleware"""
+    return TimingMiddleware()
