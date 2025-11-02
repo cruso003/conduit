@@ -19,6 +19,48 @@ from conduit.http.request import HTTPRequest, parse_http_request
 from conduit.http.response import HTTPResponse
 from conduit.http.router import Router
 
+# Helper function for path parameter matching (called from plugin-generated code)
+def match_path_pattern(path: str, pattern: str, params: Dict[str, str]) -> bool:
+    """
+    Match an incoming path against a route pattern with parameters.
+    
+    Args:
+        path: Incoming request path (e.g., "/users/123")
+        pattern: Route pattern (e.g., "/users/:id")
+        params: Dictionary to populate with extracted parameters
+    
+    Returns:
+        True if path matches pattern, False otherwise
+    
+    Example:
+        params = {}
+        if match_path_pattern("/users/123", "/users/:id", params):
+            print(params["id"])  # "123"
+    """
+    # Split both path and pattern by '/'
+    path_segments = path.split('/')[1:]  # Skip first empty segment
+    pattern_segments = pattern.split('/')[1:]
+    
+    # Must have same number of segments
+    if len(path_segments) != len(pattern_segments):
+        return False
+    
+    # Match segment by segment
+    for i in range(len(path_segments)):
+        pattern_seg = pattern_segments[i]
+        path_seg = path_segments[i]
+        
+        if pattern_seg.startswith(':'):
+            # Parameter segment - extract value
+            param_name = pattern_seg[1:]  # Remove ':' prefix
+            params[param_name] = path_seg
+        else:
+            # Static segment - must match exactly
+            if pattern_seg != path_seg:
+                return False
+    
+    return True
+
 # Plugin replaces this stub's body at compile-time
 def conduit_plugin_dispatch(method: str, path: str, request: HTTPRequest) -> HTTPResponse:
     # This body will be replaced by the plugin

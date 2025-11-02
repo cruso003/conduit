@@ -100,7 +100,10 @@ struct RouteInfo {
         param_names.clear();
         param_positions.clear();
         
+        std::cout << "    [DEBUG] Parsing path: " << path << "\n";
+        
         if (path.empty() || path[0] != '/') {
+            std::cout << "    [DEBUG] Path empty or doesn't start with /\n";
             return;
         }
         
@@ -121,6 +124,11 @@ struct RouteInfo {
             segments.push_back(segment);
         }
         
+        std::cout << "    [DEBUG] Found " << segments.size() << " segments\n";
+        for (size_t i = 0; i < segments.size(); ++i) {
+            std::cout << "    [DEBUG]   Segment " << i << ": '" << segments[i] << "'\n";
+        }
+        
         // Find parameters (segments starting with ':')
         for (size_t i = 0; i < segments.size(); ++i) {
             if (!segments[i].empty() && segments[i][0] == ':') {
@@ -128,8 +136,11 @@ struct RouteInfo {
                 std::string param_name = segments[i].substr(1);
                 param_names.push_back(param_name);
                 param_positions.push_back(i);
+                std::cout << "    [DEBUG]   Found parameter: " << param_name << " at position " << i << "\n";
             }
         }
+        
+        std::cout << "    [DEBUG] Total parameters found: " << param_names.size() << "\n";
     }
 };
 
@@ -440,7 +451,7 @@ public:
                 // Week 6 Day 3: Show parameters if any
                 if (!route.param_names.empty()) {
                     std::cout << " (params: ";
-                    for (size_t i = 0; i < route.param_names.empty(); ++i) {
+                    for (size_t i = 0; i < route.param_names.size(); ++i) {
                         if (i > 0) std::cout << ", ";
                         std::cout << route.param_names[i];
                     }
@@ -985,7 +996,7 @@ private:
                 int route_idx = *it;
                 const auto &route = routes[route_idx];
                 
-                // Create path condition
+                // Create path condition (exact string match)
                 auto *pathCondition = createStringEquals(M, pathVar, route.path);
                 
                 // Create handler call
