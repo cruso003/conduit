@@ -439,7 +439,6 @@ cd plugins/conduit && mkdir build && cd build
 cmake .. && make && make install
 
 # Test plugin
-cd /Users/rgt/Desktop/BITS/TurboX
 CODON_PATH=. codon run -release -plugin conduit examples/framework_autogen.codon
 
 # Test endpoints

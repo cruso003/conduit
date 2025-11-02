@@ -78,8 +78,8 @@ Describe your testing approach.
 ## Development Setup
 
 ```bash
-# Clone your fork
-git clone https://github.com/YOUR_USERNAME/turboX.git
+# Fork the repository
+git clone https://github.com/YOUR_USERNAME/conduit.git
 cd conduit
 
 # Install Codon (if not already installed)

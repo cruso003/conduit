@@ -1,4 +1,4 @@
-# TurboX HTTP Module - HTTP protocol implementation
+# Conduit HTTP Module - HTTP protocol implementation
 
 from .request import HTTPRequest, parse_http_request
 from .response import (

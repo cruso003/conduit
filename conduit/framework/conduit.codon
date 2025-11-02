@@ -4,15 +4,54 @@ Conduit Framework - Main API
 The high-level framework class that provides decorator-based routing
 and integrates all the low-level components.
 
-Note: Since Codon doesn't support storing arbitrary Callable types in collections,
-we use a code generation approach where routes are registered and matched,
-but the actual handler dispatch is done by the user's code.
+Note: This framework integrates with the Conduit compiler plugin for
+compile-time routing optimization. The plugin detects routes via
+add_route_metadata() calls and generates an optimized dispatch function.
+
+IMPORTANT: This framework REQUIRES compilation with the Conduit plugin:
+    codon build -plugin conduit your_app.codon
+
+The plugin generates the conduit_plugin_dispatch function at compile-time.
 """
 
 from conduit.net.socket import Socket
 from conduit.http.request import HTTPRequest, parse_http_request  
 from conduit.http.response import HTTPResponse
 from conduit.http.router import Router
+
+# Plugin replaces this stub's body at compile-time
+def conduit_plugin_dispatch(method: str, path: str, request: HTTPRequest) -> HTTPResponse:
+    # This body will be replaced by the plugin
+    # If you see this message, the plugin didn't run!
+    return HTTPResponse(500, "ERROR: Plugin did not generate dispatch function")
+
+# Plugin metadata function - intercepted by compiler plugin
+def conduit_dispatch_bucketed(method: str, path: str, request: HTTPRequest) -> HTTPResponse:
+    """
+    Dispatch function that routes requests to handlers
+    
+    This function calls the plugin-generated optimized dispatch.
+    When compiled with -plugin conduit, routes to the plugin version.
+    Without the plugin, returns an error.
+    """
+    return __plugin_dispatch_bucketed__(method, path, request)
+
+# Plugin metadata function - intercepted by compiler plugin
+def add_route_metadata(method: str, path: str, handler_name: str):
+    """
+    Route registration metadata for compiler plugin
+    
+    This function is called by decorators to register route metadata.
+    The Conduit compiler plugin intercepts these calls during compilation
+    to generate optimized dispatch code.
+    
+    Args:
+        method: HTTP method (GET, POST, etc.)
+        path: Route pattern (/users/:id)
+        handler_name: Name of the handler function
+    """
+    # Empty implementation - plugin intercepts the IR call
+    pass
 
 class RouteInfo:
     """Information about a registered route"""
@@ -57,6 +96,7 @@ class Conduit:
     
     def add_route_metadata(self, pattern: str, method: str, name: str = ""):
         """Register route metadata (called by decorators)"""
+        # Register with runtime router for fallback
         self.router.add_route(pattern, method)
         self.route_info.append(RouteInfo(pattern, method, name))
     
@@ -70,6 +110,10 @@ class Conduit:
                 return {"users": []}
         """
         def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("GET", pattern, handler.__name__)
+            
+            # Register with runtime router
             self.add_route_metadata(pattern, "GET", handler.__name__)
             return handler
         return decorator
@@ -77,6 +121,10 @@ class Conduit:
     def post(self, pattern: str):
         """Decorator for POST routes"""
         def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("POST", pattern, handler.__name__)
+            
+            # Register with runtime router
             self.add_route_metadata(pattern, "POST", handler.__name__)
             return handler
         return decorator
@@ -84,6 +132,10 @@ class Conduit:
     def put(self, pattern: str):
         """Decorator for PUT routes"""
         def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("PUT", pattern, handler.__name__)
+            
+            # Register with runtime router
             self.add_route_metadata(pattern, "PUT", handler.__name__)
             return handler
         return decorator
@@ -91,6 +143,10 @@ class Conduit:
     def delete(self, pattern: str):
         """Decorator for DELETE routes"""
         def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("DELETE", pattern, handler.__name__)
+            
+            # Register with runtime router
             self.add_route_metadata(pattern, "DELETE", handler.__name__)
             return handler
         return decorator
@@ -98,6 +154,10 @@ class Conduit:
     def patch(self, pattern: str):
         """Decorator for PATCH routes"""
         def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("PATCH", pattern, handler.__name__)
+            
+            # Register with runtime router
             self.add_route_metadata(pattern, "PATCH", handler.__name__)
             return handler
         return decorator
@@ -257,6 +317,23 @@ class Conduit:
         
         return '[' + ', '.join(json_items) + ']'
     
+    def handle_request(self, request: HTTPRequest) -> HTTPResponse:
+        """
+        Handle incoming HTTP request
+        
+        Routes the request to the appropriate handler.
+        Calls plugin-generated optimized dispatch function.
+        
+        Args:
+            request: Parsed HTTP request
+            
+        Returns:
+            HTTP response
+        """
+        # Phase 3: Call plugin-generated optimized dispatch
+        # The plugin generates conduit_plugin_dispatch at compile time
+        return conduit_plugin_dispatch(request.method, request.path, request)
+    
     def _get_status_text(self, status: int) -> str:
         """Get status text for status code"""
         status_texts = {
@@ -296,53 +373,40 @@ class Conduit:
         sock.listen(128)
         self.running = True
         
-        print(f"")
-        print(f"======================================================================")
-        print(f"Conduit Framework")
-        print(f"======================================================================")
-        print(f"")
-        print(f"Server running at http://{self.host}:{self.port}")
-        print(f"")
-        print(f"Registered routes:")
-        for i in range(len(self.router.routes)):
-            route = self.router.routes[i]
-            print(f"  {route.method:6} {route.pattern}")
-        print(f"")
-        print(f"Press Ctrl+C to stop")
-        print(f"")
+        print("")
+        print("======================================================================")
+        print("Conduit Framework")
+        print("======================================================================")
+        print("")
+        print("Server running at http://" + self.host + ":" + str(self.port))
+        print("")
+        print("Registered routes:")
+        # Skip route printing to avoid type error
+        print("  " + str(len(self.router.routes)) + " route(s) registered")
+        print("")
+        print("Press Ctrl+C to stop")
+        print("")
         
         # Accept loop
         while self.running:
-            try:
-                client = sock.accept()
-                
-                # Read request
-                data = client.recv(4096)
-                if len(data) == 0:
-                    client.close()
-                    continue
-                
-                # Parse HTTP request
-                request = parse_http_request(data)
-                
-                # Handle request
-                response = self.handle_request(request)
-                
-                # Send response
-                response_str = response.to_string()
-                client.send(response_str)
+            client = sock.accept()
+            
+            # Read request
+            data = client.recv(4096)
+            if len(data) == 0:
                 client.close()
-                
-            except KeyboardInterrupt:
-                print("\n\nShutting down...")
-                self.running = False
-                break
-            except Exception as e:
-                print(f"[Error] {e}")
-                try:
-                    client.close()
-                except:
-                    pass
+                continue
+            
+            # Parse HTTP request
+            request = parse_http_request(data)
+            
+            # Handle request
+            response = self.handle_request(request)
+            
+            # Send response
+            response_str = response.to_bytes()
+            client.send(response_str)
+            client.close()
         
         sock.close()
         print("Server stopped.")

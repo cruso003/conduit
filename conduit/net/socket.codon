@@ -1,5 +1,5 @@
 """
-TurboX Network Socket Implementation
+Conduit Network Socket Implementation
 
 Low-level TCP socket wrapper using Codon's C FFI for native performance.
 Cross-platform: macOS (dev) and Linux (production).

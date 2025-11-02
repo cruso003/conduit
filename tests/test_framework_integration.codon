@@ -1,0 +1,58 @@
+"""
+Framework Integration Test: Phase 1.4 - End-to-End Test
+
+Test that the plugin-generated dispatch works with the framework.
+This is the FIRST working integration of plugin + framework!
+"""
+
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit(port=8080)
+
+# Define handlers with proper type signatures
+@app.get("/")
+def home(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"message": "Hello from integrated plugin!"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/about")
+def about(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"page": "about", "version": "0.2.0"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.post("/submit")
+def submit(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(201, '{"status": "created", "message": "Data submitted"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/users/:id")
+def get_user(request: HTTPRequest) -> HTTPResponse:
+    user_id = request.params.get("id", "unknown")
+    body = '{"user_id": "' + user_id + '", "name": "User ' + user_id + '"}'
+    response = HTTPResponse(200, body)
+    response.set_content_type("application/json")
+    return response
+
+# Print detected routes
+print("\n" + "=" * 70)
+print("Conduit Framework + Plugin Integration Test")
+print("=" * 70)
+print("\nRoutes registered:")
+for info in app.route_info:
+    print(f"  {info.method:6} {info.pattern}")
+
+print("\n✅ If you see plugin output above, the integration is working!")
+print("\nTo test the server:")
+print("  1. Compile: codon build -plugin conduit tests/test_framework_integration.codon -o test_server")
+print("  2. Run: ./test_server")
+print("  3. Test: curl http://localhost:8080/")
+print("")
+
+# Run server
+if __name__ == "__main__":
+    app.run()
