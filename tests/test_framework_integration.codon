@@ -5,9 +5,23 @@ Test that the plugin-generated dispatch works with the framework.
 This is the FIRST working integration of plugin + framework!
 """
 
-from conduit import Conduit
+# Import types first (before framework to ensure 404 handler is compiled)
 from conduit.http.request import HTTPRequest
 from conduit.http.response import HTTPResponse
+
+# Define 404 handler BEFORE importing Conduit (so plugin can find it)
+def handle_404(path: str = "") -> HTTPResponse:
+    """Fallback handler for 404 responses"""
+    if path:
+        body = '{"error": "Not Found", "path": "' + path + '", "status": 404}'
+    else:
+        body = '{"error": "Not Found", "status": 404}'
+    response = HTTPResponse(404, body)
+    response.set_content_type("application/json")
+    return response
+
+# Now import framework (this triggers the plugin)
+from conduit import Conduit
 
 app = Conduit(port=8080)
 

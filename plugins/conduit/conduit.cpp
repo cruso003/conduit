@@ -595,17 +595,22 @@ private:
         return result;
     }
     
-    /// Create 404 response for unmatched routes  
-    /// HACK: Returns result of calling first handler to avoid type mismatch
-    /// This ensures return type matches (HTTPResponse) instead of returning string
-    Value* create404Response(Module *M, types::Type* httpResponseType, Var* requestVar, Func* firstHandler) {
-        // HACK: Call the first handler even for 404 (wrong but type-safe)
-        // This lets us test the happy path without solving HTTPResponse construction
-        if (firstHandler) {
-            return util::call(firstHandler, {M->Nr<VarValue>(requestVar)});
-        }
-        // If no handlers at all, return string (will cause type error)
-        return M->getString("404 Not Found");
+    /// Create 404 response for unmatched routes
+    /// Calls not_found_json() helper from framework
+    Value* create404Response(Module *M, types::Type* httpResponseType, Var* requestVar, Var* pathVar) {
+        // LIMITATION: Cannot generate 404 responses at compile-time
+        // Framework helper functions (_conduit_default_404, not_found_json) are not yet
+        // compiled into IR when the plugin runs during module compilation.
+        // 
+        // WORKAROUND: Users should either:
+        // 1. Add a catch-all route in their application
+        // 2. Ensure all paths are covered by defined routes
+        // 
+        // Future: Implement runtime-level 404 handling in framework dispatch wrapper
+        
+        std::cerr << "    ⚠️  404 handling not available at compile-time\n";
+        std::cerr << "    💡 TIP: Add a catch-all route or ensure all paths match\n";
+        return nullptr;
     }
     
     /// Create boolean AND operation: cond1 AND cond2
@@ -808,14 +813,24 @@ private:
         // The perfect hash gives us the optimal ordering and slot assignments
         
         if (routes.empty()) {
-            // No routes - just return 404
-            body->push_back(M->Nr<ReturnInstr>(create404Response(M, httpResponseType, requestVar, firstHandler)));
+            // No routes - return error (this shouldn't happen in practice)
+            auto *errorMsg = M->getString("ERROR: No routes registered");
+            body->push_back(M->Nr<ReturnInstr>(errorMsg));
         } else {
             // Build dispatch using perfect hash slot assignments
-            // Start with 404 as default
-            auto *notFoundFlow = M->Nr<SeriesFlow>();
-            notFoundFlow->push_back(M->Nr<ReturnInstr>(create404Response(M, httpResponseType, requestVar, firstHandler)));
-            Flow *currentElse = notFoundFlow;
+            // Start with 404 fallback as base
+            auto *fallback404 = create404Response(M, httpResponseType, requestVar, pathVar);
+            Flow *currentElse = nullptr;
+            
+            if (fallback404) {
+                auto *fallbackFlow = M->Nr<SeriesFlow>();
+                fallbackFlow->push_back(M->Nr<ReturnInstr>(fallback404));
+                currentElse = fallbackFlow;
+                std::cout << "    ✓ 404 fallback configured\n";
+            } else {
+                std::cerr << "    ⚠️  No 404 handler - ensure all routes match!\n";
+                // currentElse starts as nullptr - will only work if all routes match
+            }
             
             // Iterate through slots in reverse order
             for (int slot = perfectHash.table_size - 1; slot >= 0; --slot) {
@@ -962,10 +977,18 @@ private:
         // Strategy: Generate if/elif chain for methods, then path matching within each method
         // This reduces average comparisons from N routes to N/M (where M = number of methods)
         
-        // Start with 404 as default (no method matched)
-        auto *notFoundFlow = M->Nr<SeriesFlow>();
-        notFoundFlow->push_back(M->Nr<ReturnInstr>(create404Response(M, httpResponseType, requestVar, firstHandler)));
-        Flow *currentElse = notFoundFlow;
+        // Start with fallback for unmatched methods
+        auto *methodNotFoundResponse = create404Response(M, httpResponseType, requestVar, pathVar);
+        Flow *currentElse = nullptr;
+        
+        if (methodNotFoundResponse) {
+            auto *methodNotFoundFlow = M->Nr<SeriesFlow>();
+            methodNotFoundFlow->push_back(M->Nr<ReturnInstr>(methodNotFoundResponse));
+            currentElse = methodNotFoundFlow;
+            std::cout << "    ✓ Method fallback configured\n";
+        } else {
+            std::cerr << "    ⚠️  No 404 handler - methods must match!\n";
+        }
         
         // Iterate through methods in reverse order to build if/elif chain
         std::vector<std::string> methods;
@@ -986,10 +1009,17 @@ private:
             auto *methodBody = M->Nr<SeriesFlow>();
             
             // Within this method, dispatch based on path
-            // Start with 404 for this method (path not found)
-            auto *pathNotFound = M->Nr<SeriesFlow>();
-            pathNotFound->push_back(M->Nr<ReturnInstr>(create404Response(M, httpResponseType, requestVar, firstHandler)));
-            Flow *pathElse = pathNotFound;
+            // Create default path fallback (when no path matches within this method)
+            auto *notFoundResponse = create404Response(M, httpResponseType, requestVar, pathVar);
+            Flow *pathElse = nullptr;
+            
+            if (notFoundResponse) {
+                auto *pathNotFoundFlow = M->Nr<SeriesFlow>();
+                pathNotFoundFlow->push_back(M->Nr<ReturnInstr>(notFoundResponse));
+                pathElse = pathNotFoundFlow;
+            } else {
+                std::cerr << "    ⚠️  No path fallback - paths must match!\n";
+            }
             
             // Iterate through routes for this method in reverse
             for (auto it = bucket.route_indices.rbegin(); it != bucket.route_indices.rend(); ++it) {
@@ -1093,14 +1123,23 @@ private:
         auto *body = M->Nr<SeriesFlow>();
         
         if (routes.empty()) {
-            // No routes - just return 404
-            body->push_back(M->Nr<ReturnInstr>(create404Response(M, httpResponseType, requestVar, firstHandler)));
+            // No routes - return error
+            auto *errorMsg = M->getString("ERROR: No routes registered");
+            body->push_back(M->Nr<ReturnInstr>(errorMsg));
         } else {
             // Build if/elif chain from end to start (backward construction)
-            // Start with 404 as the final else clause
-            auto *notFoundFlow = M->Nr<SeriesFlow>();
-            notFoundFlow->push_back(M->Nr<ReturnInstr>(create404Response(M, httpResponseType, requestVar, firstHandler)));
-            Flow *currentElse = notFoundFlow;
+            // Start with 404 fallback
+            auto *fallback404 = create404Response(M, httpResponseType, requestVar, pathVar);
+            Flow *currentElse = nullptr;
+            
+            if (fallback404) {
+                auto *fallbackFlow = M->Nr<SeriesFlow>();
+                fallbackFlow->push_back(M->Nr<ReturnInstr>(fallback404));
+                currentElse = fallbackFlow;
+                std::cout << "    ✓ Simple dispatch fallback configured\n";
+            } else {
+                std::cerr << "    ⚠️  No 404 handler - all routes must match!\n";
+            }
             
             // Iterate routes in reverse to build nested if/elif structure
             for (auto it = routes.rbegin(); it != routes.rend(); ++it) {
@@ -1137,7 +1176,7 @@ private:
                 currentElse = M->Nr<IfFlow>(condition, trueBranch, currentElse);
             }
             
-            // Add the complete if/elif chain to body
+            // Add the complete if/elif chain to body (fallback already part of chain)
             body->push_back(currentElse);
         }
         

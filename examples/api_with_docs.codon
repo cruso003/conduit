@@ -1,0 +1,90 @@
+"""
+Example: API with Auto-Documentation
+
+This example demonstrates Conduit's automatic API documentation feature.
+The framework automatically generates OpenAPI 3.0 specs and serves an
+interactive Swagger UI for testing your API.
+
+Usage:
+    codon build -plugin conduit examples/api_with_docs.codon -o api_with_docs
+    ./api_with_docs
+    
+Then visit:
+    - http://localhost:8000/docs - Interactive Swagger UI
+    - http://localhost:8000/openapi.json - OpenAPI 3.0 specification
+"""
+
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+# Create app with auto-documentation enabled
+app = Conduit(port=8000)
+
+# Enable auto-documentation with custom metadata
+app.enable_docs(
+    title="My API",
+    version="1.0.0",
+    description="A simple API demonstrating auto-documentation with Conduit"
+)
+
+@app.get("/")
+def index(request: HTTPRequest) -> HTTPResponse:
+    """Welcome endpoint"""
+    return HTTPResponse().json({
+        "message": "Welcome to My API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    })
+
+@app.get("/users")
+def list_users(request: HTTPRequest) -> HTTPResponse:
+    """Get all users"""
+    return HTTPResponse().json({
+        "users": "Alice, Bob, Charlie"
+    })
+
+@app.post("/users")
+def create_user(request: HTTPRequest) -> HTTPResponse:
+    """Create a new user"""
+    data = request.parse_json()
+    return HTTPResponse(201).json({
+        "status": "created",
+        "user": str(data)
+    })
+
+@app.get("/products")
+def list_products(request: HTTPRequest) -> HTTPResponse:
+    """Get all products"""
+    return HTTPResponse().json({
+        "products": "Widget, Gadget, Gizmo"
+    })
+
+@app.get("/health")
+def health_check(request: HTTPRequest) -> HTTPResponse:
+    """Health check endpoint"""
+    return HTTPResponse().json({
+        "status": "healthy",
+        "uptime": "running"
+    })
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("🚀 Conduit API with Auto-Documentation")
+    print("="*70)
+    print("\n📚 Documentation available at:")
+    print(f"   • Interactive UI:  http://localhost:8000/docs")
+    print(f"   • OpenAPI Spec:    http://localhost:8000/openapi.json")
+    print("\n📡 API Endpoints:")
+    print("   • GET  /           - Welcome message")
+    print("   • GET  /users      - List all users")
+    print("   • POST /users      - Create new user")
+    print("   • GET  /products   - List all products")
+    print("   • GET  /health     - Health check")
+    print("\n💡 Try it:")
+    print("   curl http://localhost:8000/")
+    print("   curl http://localhost:8000/openapi.json")
+    print("   open http://localhost:8000/docs")
+    print("\n" + "="*70 + "\n")
+    
+    app.run()

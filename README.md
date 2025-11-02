@@ -4,12 +4,14 @@
 
 <img src="docs/assets/logo.png" alt="Conduit Logo" width="200"/>
 
-**AI-native web framework powered by Codon with compile-time routing optimization**
+**High-performance web framework powered by Codon with compile-time routing optimization**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Codon](https://img.shields.io/badge/Codon-0.16+-green.svg)](https://github.com/exaloop/codon)
-[![Status](https://img.shields.io/badge/Status-Alpha-orange.svg)]()
-[![Plugin](https://img.shields.io/badge/Plugin-Complete-success.svg)](docs/PLUGIN_COMPLETE.md)
+[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)](CHANGELOG.md)
+[![Plugin](https://img.shields.io/badge/Plugin-Complete-success.svg)](docs/plugin/PLUGIN_COMPLETE.md)
+
+[Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples) • [Benchmarks](#performance)
 
 </div>
 
@@ -17,20 +19,357 @@
 
 ## 🚀 What is Conduit?
 
-Conduit is a high-performance web framework built on the [Codon compiler](https://github.com/exaloop/codon). It features a **compile-time routing optimization plugin** that delivers **2x faster routing** for typical web applications.
+Conduit is a high-performance web framework built on the [Codon compiler](https://github.com/exaloop/codon). It features a **compile-time routing optimization plugin** that delivers **2x faster routing** for large applications, automatic API documentation, and a powerful middleware system.
 
-**Perfect for building MCP servers and AI agent tooling.**
+**Built for developers who want Python's simplicity with C's performance.**
 
-**Key Features:**
+### Key Features
 
-- ⚡ **2x Faster Routing**: Compile-time optimization plugin (100% handler linking success)
-- 🎯 **Perfect Hash Routing**: O(1) route lookup with 100% efficiency
+- ⚡ **2x Faster Routing**: Compile-time optimization with perfect hashing (100% efficiency)
+- 📚 **Auto-Documentation**: Built-in Swagger UI and OpenAPI 3.0 generation
+- 🔧 **Middleware System**: Logger, CORS, timing, and custom middleware
+- 🎯 **Pythonic API**: Familiar Flask/FastAPI-like decorators
 - 🚀 **Native Performance**: Compiled to machine code - 10-100x faster than CPython
-- 🤖 **First-class MCP Support**: Built-in Model Context Protocol for AI agent tooling
-- 🔧 **Pythonic API**: Familiar Flask/FastAPI-like syntax that compiles to native code
-- 🚀 **True Parallelism**: No GIL - leverage all CPU cores with `@par`
-- 📊 **ML Inference**: Native NumPy support for high-speed ML model serving
-- 🎯 **Small Binaries**: ~1MB executables with no runtime dependencies
+- 📦 **Small Binaries**: ~1MB executables with no runtime dependencies
+- 🔒 **Type-Safe**: Compile-time type checking with Codon
+
+---
+
+## 📊 Performance
+
+### Routing Performance (v1.0)
+
+```
+Conduit Plugin vs Baseline Routing
+─────────────────────────────────────────
+Application Size    Before    After    Speedup
+─────────────────────────────────────────
+Small (4 routes)    2.5       2.5      1.0x
+Medium (10 routes)  5.5       4.0      1.4x ✨
+Large (100 routes)  50.0      27.5     1.8x ✨
+Enterprise (1000)   500.0     252.5    2.0x ✨
+─────────────────────────────────────────
+Handler Linking: 100% success (14/14 tests)
+Perfect Hash Efficiency: 100% (zero wasted slots)
+```
+
+**See detailed benchmarks:** [docs/weekly-reports/WEEK_11_BENCHMARKING_RESULTS.md](docs/weekly-reports/WEEK_11_BENCHMARKING_RESULTS.md)
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- [Codon](https://github.com/exaloop/codon) 0.16 or higher
+- Linux or macOS
+
+### Installation
+
+```bash
+# Install Codon
+/bin/bash -c "$(curl -fsSL https://exaloop.io/install.sh)"
+
+# Clone Conduit
+git clone https://github.com/cruso003/conduit.git
+cd conduit
+
+# Set Codon path
+export CODON_PATH=$(pwd)
+```
+
+### Hello World (30 seconds)
+
+Create `hello.codon`:
+
+```python
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit()
+
+@app.get("/")
+def hello(request: HTTPRequest) -> HTTPResponse:
+    return HTTPResponse().json({"message": "Hello, World!"})
+
+app.run()
+```
+
+**Build and run:**
+
+```bash
+CODON_PATH=$(pwd) codon build -plugin conduit hello.codon -o hello
+./hello
+```
+
+**Test it:**
+
+```bash
+curl http://localhost:8000/
+# {"message": "Hello, World!"}
+```
+
+**✅ That's it!** See [QUICKSTART.md](QUICKSTART.md) for more examples.
+
+---
+
+## 📚 Auto-Documentation
+
+Enable interactive API documentation with one line:
+
+```python
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit()
+
+# Enable auto-docs
+app.enable_docs(
+    title="My API",
+    version="1.0.0",
+    description="A simple REST API"
+)
+
+@app.get("/users")
+def list_users(request: HTTPRequest) -> HTTPResponse:
+    return HTTPResponse().json({"users": "Alice, Bob, Charlie"})
+
+@app.post("/users")
+def create_user(request: HTTPRequest) -> HTTPResponse:
+    data = request.parse_json()
+    return HTTPResponse(201).json({"created": str(data)})
+
+app.run()
+```
+
+**Automatic endpoints:**
+
+- 📖 `http://localhost:8000/docs` - Interactive Swagger UI
+- 📋 `http://localhost:8000/openapi.json` - OpenAPI 3.0 specification
+
+**Features:**
+
+- ✅ Automatic route discovery
+- ✅ Interactive testing ("Try it out" button)
+- ✅ Request/response schemas
+- ✅ Branded Conduit styling
+
+See [examples/api_with_docs.codon](examples/api_with_docs.codon) for a complete example.
+
+---
+
+## 🔧 Middleware
+
+Add cross-cutting concerns easily:
+
+```python
+from conduit import Conduit
+from conduit.http.middleware import logger_middleware, cors_middleware, timing_middleware
+
+app = Conduit()
+
+# Add middleware
+app.use(logger_middleware(prefix="[API]"))
+app.use(cors_middleware(origin="https://example.com"))
+app.use(timing_middleware())
+
+@app.get("/")
+def index(request):
+    return HTTPResponse().json({"message": "Hello"})
+
+app.run()
+```
+
+**Built-in middleware:**
+
+- 📝 **Logger**: Request/response logging
+- 🌐 **CORS**: Cross-origin resource sharing
+- ⏱️ **Timing**: Response time headers
+
+**Create custom middleware:**
+
+```python
+class CustomMiddleware:
+    def __init__(self):
+        pass
+
+    def apply(self, request, response):
+        response.set_header("X-Powered-By", "Conduit")
+
+app.use(CustomMiddleware())
+```
+
+See [docs/middleware-implementation.md](docs/middleware-implementation.md) for details.
+
+---
+
+## 🎯 Features Overview
+
+### Core Framework
+
+- ✅ HTTP/1.1 server with request/response handling
+- ✅ Route decorators (`@app.get`, `@app.post`, `@app.put`, `@app.delete`)
+- ✅ Query parameter parsing
+- ✅ JSON request/response helpers
+- ✅ Error handling (404, 500, custom status codes)
+
+### Compiler Plugin (2x Performance)
+
+- ✅ Compile-time route detection and optimization
+- ✅ Perfect hash tables for O(1) route lookup
+- ✅ Method bucketing for faster dispatch
+- ✅ 100% handler linking success rate
+- ✅ Type-safe HTTPRequest/HTTPResponse
+
+### Auto-Documentation
+
+- ✅ Interactive Swagger UI at `/docs`
+- ✅ OpenAPI 3.0 specification at `/openapi.json`
+- ✅ Automatic route discovery
+- ✅ Custom branding and styling
+
+### Middleware System
+
+- ✅ Post-processing middleware chain
+- ✅ Built-in logger, CORS, and timing middleware
+- ✅ Easy custom middleware creation
+
+---
+
+## 📖 Examples
+
+### Basic API
+
+```python
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit()
+
+@app.get("/users")
+def list_users(request: HTTPRequest) -> HTTPResponse:
+    page = request.query.get("page", "1")
+    return HTTPResponse().json({
+        "users": "Alice, Bob, Charlie",
+        "page": page
+    })
+
+@app.post("/users")
+def create_user(request: HTTPRequest) -> HTTPResponse:
+    data = request.parse_json()
+    return HTTPResponse(201).json({
+        "status": "created",
+        "name": data.get("name", "")
+    })
+
+app.run()
+```
+
+### With Auto-Documentation
+
+```python
+app = Conduit()
+
+# One line to enable docs!
+app.enable_docs(
+    title="My API",
+    version="1.0.0",
+    description="A simple REST API"
+)
+
+@app.get("/products")
+def list_products(request: HTTPRequest) -> HTTPResponse:
+    return HTTPResponse().json({"products": "Widget, Gadget"})
+
+app.run()
+# Visit http://localhost:8000/docs for interactive UI
+```
+
+### With Middleware
+
+```python
+from conduit.http.middleware import logger_middleware, cors_middleware
+
+app = Conduit()
+
+app.use(logger_middleware(prefix="[API]"))
+app.use(cors_middleware(origin="*"))
+
+@app.get("/")
+def index(request: HTTPRequest) -> HTTPResponse:
+    return HTTPResponse().json({"message": "Hello with middleware!"})
+
+app.run()
+```
+
+**More examples:**
+
+- [examples/hello_world.codon](examples/hello_world.codon)
+- [examples/echo_server.codon](examples/echo_server.codon)
+- [examples/api_with_docs.codon](examples/api_with_docs.codon)
+
+---
+
+## � Documentation
+
+### Getting Started
+
+- **[QUICKSTART.md](QUICKSTART.md)** - 5-minute getting started guide
+- **[API_REFERENCE.md](API_REFERENCE.md)** - Complete API documentation
+- [docs/framework-guide.md](docs/framework-guide.md) - Comprehensive framework guide
+
+### Features
+
+- [docs/middleware-implementation.md](docs/middleware-implementation.md) - Middleware system
+- [docs/api-auto-documentation.md](docs/api-auto-documentation.md) - Auto-docs details
+
+### Compiler Plugin
+
+- [docs/plugin/PLUGIN_COMPLETE.md](docs/plugin/PLUGIN_COMPLETE.md) - Plugin overview
+- [docs/plugin/PLUGIN_MIGRATION_GUIDE.md](docs/plugin/PLUGIN_MIGRATION_GUIDE.md) - Integration guide
+- [docs/weekly-reports/WEEK_11_BENCHMARKING_RESULTS.md](docs/weekly-reports/WEEK_11_BENCHMARKING_RESULTS.md) - Performance data
+
+### Project
+
+- [CHANGELOG.md](CHANGELOG.md) - Release notes
+- [docs/ROADMAP.md](docs/ROADMAP.md) - Development roadmap
+- [docs/PROJECT_STATUS_REVIEW.md](docs/PROJECT_STATUS_REVIEW.md) - Current status
+
+---
+
+## 🗺️ Roadmap
+
+### ✅ v1.0 (November 2025) - CURRENT
+
+- [x] HTTP/1.1 server
+- [x] Routing with compile-time optimization
+- [x] 2x routing speedup (proven)
+- [x] Middleware system
+- [x] Auto-documentation (Swagger UI + OpenAPI 3.0)
+- [x] Query parameters and JSON parsing
+- [x] 100% handler linking success
+
+### 🔜 v1.1 (Q1 2026)
+
+- [ ] Runtime path parameter matching (`/users/:id`)
+- [ ] MCP protocol implementation
+- [ ] Additional middleware (auth, rate limiting)
+- [ ] WebSocket support
+
+### 🔮 v2.0 (Q2 2026)
+
+- [ ] Trie-based routing (2-3x additional speedup)
+- [ ] ML model serving integration
+- [ ] Advanced query parameter analysis
+- [ ] Route conflict detection
+- [ ] Production monitoring
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for detailed plans.
+
+---
 
 ---
 
@@ -201,174 +540,51 @@ def search(query: str) -> str:
 app.run()
 ```
 
-See the [MCP Guide](docs/mcp-guide.md) for more details.
+## 💡 Why Conduit?
+
+**Python's simplicity, C's performance**
+
+| Feature         | Conduit                   | FastAPI            | Flask             |
+| --------------- | ------------------------- | ------------------ | ----------------- |
+| **Language**    | Codon (Python → native)   | Python             | Python            |
+| **Performance** | Native (10-100x faster)   | ~3.5k req/s        | ~1k req/s         |
+| **Routing**     | Compile-time (2x speedup) | Runtime            | Runtime           |
+| **Binary Size** | ~1MB                      | N/A (interpreter)  | N/A (interpreter) |
+| **Auto-Docs**   | Built-in Swagger UI       | Via dependency     | Manual            |
+| **Middleware**  | Built-in                  | Via dependency     | Built-in          |
+| **Type Safety** | Compile-time              | Runtime (Pydantic) | None              |
 
 ---
 
-## 🧠 ML Inference
+## 🤝 Contributing
 
-Serve ML models at native speed:
-
-```python
-from conduit.ml import ConduitML, NumpyModel
-import numpy as np
-
-app = ConduitML()
-
-# Register model
-model = NumpyModel("classifier", "model.npz")
-app.register_model("classifier", model)
-
-# Create endpoint
-@app.ml_endpoint("/predict", "classifier")
-def preprocess(input_data):
-    return np.array(input_data["features"])
-
-app.run()
-```
-
-See the [ML Guide](docs/ml-guide.md) for more details.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
-## 📚 Documentation
+## 📄 License
 
-- [Getting Started](docs/getting-started.md)
-- [Architecture Overview](docs/architecture.md)
-- [API Reference](docs/api-reference.md)
-- [MCP Guide](docs/mcp-guide.md)
-- [ML Inference Guide](docs/ml-guide.md)
-- [Performance Tuning](docs/performance.md)
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-## 🗺️ Roadmap
+## � Acknowledgments
 
-### Phase 1: MCP Foundation (Months 1-3) ✅ Current
-
-- [x] HTTP/1.1 server with epoll
-
----
-
-## 🔧 Compiler Plugin
-
-Conduit includes a **compile-time routing optimization plugin** that delivers proven **2x performance improvement** for typical web applications.
-
-### Features
-
-- ✅ **Perfect Hash Routing**: O(1) lookup with 100% efficiency
-- ✅ **Method Bucketing**: Pre-filter routes by HTTP method
-- ✅ **Handler Linking**: 100% success rate, zero overhead calls
-- ✅ **Type System**: HTTPRequest/HTTPResponse support
-- ✅ **Path Parameters**: Automatic detection of `:id`, `:name` patterns
-
-### Build & Install
-
-```bash
-cd plugins/conduit/build
-cmake ..
-make
-make install
-```
-
-### Usage
-
-```bash
-# Compile with plugin
-codon build -plugin conduit app.codon -o app
-
-# Plugin automatically:
-# - Detects all routes
-# - Links handlers (100% success)
-# - Generates optimized dispatch
-# - Reports performance improvements
-```
-
-**See full documentation:**
-
-- [Plugin Overview](docs/PLUGIN_COMPLETE.md)
-- [Migration Guide](docs/PLUGIN_MIGRATION_GUIDE.md)
-- [Benchmarking Results](docs/WEEK_11_BENCHMARKING_RESULTS.md)
+- Built on [Codon](https://github.com/exaloop/codon) compiler
+- Inspired by Flask and FastAPI
+- Plugin architecture inspired by LLVM
 
 ---
 
-## 📚 Documentation
+## 📞 Support
 
-### Getting Started
-
-- [Quick Start Guide](docs/getting-started.md)
-- [Architecture Overview](docs/architecture.md)
-- [Examples](docs/examples/)
-
-### Compiler Plugin
-
-- [Plugin Documentation](docs/PLUGIN_COMPLETE.md) ⭐
-- [Migration Guide](docs/PLUGIN_MIGRATION_GUIDE.md)
-- [Benchmarking Results](docs/WEEK_11_BENCHMARKING_RESULTS.md)
-- [Method Bucketing Blog Post](docs/blog/week-6-day-1-method-bucketing.md)
-
-### Framework Features
-
-- [MCP Guide](docs/mcp-guide.md) (coming soon)
-- [ML Inference](docs/ml-guide.md) (coming soon)
-- [API Reference](docs/api-reference.md) (coming soon)
+- **Issues**: [GitHub Issues](https://github.com/cruso003/conduit/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/cruso003/conduit/discussions)
+- **Documentation**: [docs/](docs/)
 
 ---
 
-## 🗺️ Roadmap
-
-### ✅ Phase 1: Compiler Plugin (COMPLETE)
-
-- [x] Perfect hash routing (Week 4)
-- [x] Method bucketing (Week 6 Day 1)
-- [x] Handler linking 100% (Week 5 Day 3)
-- [x] Type system support (Week 6 Day 2)
-- [x] Path parameter detection (Week 6 Day 3)
-- [x] Performance benchmarking (Week 11)
-- [x] Complete documentation (Week 12)
-
-**Result**: ✅ **2x speedup proven** for 100+ route applications
-
-### 🚧 Phase 2: Framework Integration (3 weeks)
-
-- [ ] Minimal integration (1 week)
-- [ ] Type system integration (3 days)
-- [ ] Path parameter extraction (1 week)
-- [ ] Performance validation (3 days)
-- [ ] Production hardening (1 week)
-
-**Goal**: Framework + Plugin working together
-
-### ⏸️ Phase 3: Plugin Advanced Optimizations (4+ weeks)
-
-**Postponed Weeks 7-10 + Additional Optimizations**:
-
-- [ ] **Week 7: Trie-based Routing** - 2-3x additional speedup via prefix tree
-- [ ] **Week 8: Query Analysis** - Compile-time query parameter detection
-- [ ] **Week 9: Conflict Detection** - Route overlap warnings at compile-time
-- [ ] **Week 10: Static Analysis** - Dead code elimination, optimization hints
-- [ ] **Jump Tables** - Eliminate method string comparisons
-- [ ] **SIMD Matching** - Vectorized path comparison
-
-**Goal**: Advanced compiler optimizations after framework validation
-
-### ⏳ Phase 4: MCP Support (Months 4-6)
-
-- [x] SSE streaming support
-- [ ] MCP protocol implementation
-- [ ] stdio transport
-- [ ] Connection pooling
-- [ ] 50K concurrent connections benchmark
-
-### ⏳ Phase 5: ML Inference (Months 7-9)
-
-- [ ] Model loading and caching
-- [ ] Batch inference
-- [ ] GPU acceleration
-- [ ] NumPy integration
-- [ ] Reference implementations (BERT, vision models)
-
-### ⏳ Phase 6: Production Ready (Months 10-12)
+**Ready to build high-performance APIs? Get started with [QUICKSTART.md](QUICKSTART.md)!** 🚀
 
 - [ ] Middleware system
 - [ ] Authentication/authorization

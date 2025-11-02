@@ -16,8 +16,10 @@ The plugin generates the conduit_plugin_dispatch function at compile-time.
 
 from conduit.net.socket import Socket
 from conduit.http.request import HTTPRequest, parse_http_request  
-from conduit.http.response import HTTPResponse
+from conduit.http.response import HTTPResponse, not_found_json
 from conduit.http.router import Router
+from conduit.http.middleware import MiddlewareChain, LoggerMiddleware, CORSMiddleware, TimingMiddleware
+from conduit.http.docs import APIDocGenerator, RouteDoc
 
 # Helper function for path parameter matching (called from plugin-generated code)
 def match_path_pattern(path: str, pattern: str, params: Dict[str, str]) -> bool:
@@ -60,6 +62,11 @@ def match_path_pattern(path: str, pattern: str, params: Dict[str, str]) -> bool:
                 return False
     
     return True
+
+# Default 404 handler - used by plugin when routes don't match
+def _conduit_default_404(path: str = "") -> HTTPResponse:
+    """Default 404 handler called by plugin-generated dispatch"""
+    return not_found_json(path)
 
 # Plugin replaces this stub's body at compile-time
 def conduit_plugin_dispatch(method: str, path: str, request: HTTPRequest) -> HTTPResponse:
@@ -124,8 +131,15 @@ class Conduit:
     port: int
     router: Router
     route_info: List[RouteInfo]  # Metadata about routes
+    middleware_chain: MiddlewareChain  # Middleware chain
     running: bool
     _dispatch_fn_set: bool  # Flag to track if dispatch is configured
+    
+    # Auto-documentation fields
+    docs_enabled: bool
+    doc_generator: APIDocGenerator
+    api_title: str
+    api_version: str
     
     def __init__(self, host: str = "0.0.0.0", port: int = 8000):
         """Initialize Conduit application"""
@@ -133,8 +147,12 @@ class Conduit:
         self.port = port
         self.router = Router()
         self.route_info = []
+        self.middleware_chain = MiddlewareChain()
         self.running = False
         self._dispatch_fn_set = False
+        self.docs_enabled = False
+        self.api_title = "API"
+        self.api_version = "1.0.0"
     
     def add_route_metadata(self, pattern: str, method: str, name: str = ""):
         """Register route metadata (called by decorators)"""
@@ -203,6 +221,52 @@ class Conduit:
             self.add_route_metadata(pattern, "PATCH", handler.__name__)
             return handler
         return decorator
+    
+    def use(self, middleware):
+        """
+        Register middleware to process requests/responses
+        
+        Example:
+            from conduit.http.middleware_simple import logger_middleware, cors_middleware
+            
+            app.use(logger_middleware())
+            app.use(cors_middleware("*"))
+        """
+        # Dispatch to appropriate add method based on type
+        if isinstance(middleware, LoggerMiddleware):
+            self.middleware_chain.add_logger(middleware)
+        elif isinstance(middleware, CORSMiddleware):
+            self.middleware_chain.add_cors(middleware)
+        elif isinstance(middleware, TimingMiddleware):
+            self.middleware_chain.add_timing(middleware)
+    
+    def enable_docs(self, title: str = "API Documentation", version: str = "1.0.0", 
+                    description: str = "API built with Conduit"):
+        """
+        Enable auto-documentation with Swagger UI
+        
+        Serves interactive API docs at /docs and OpenAPI spec at /openapi.json
+        
+        Args:
+            title: API title
+            version: API version
+            description: API description
+            
+        Example:
+            app = Conduit()
+            app.enable_docs(title="My API", version="2.0.0")
+            app.run()
+            # Visit http://localhost:8000/docs
+        """
+        self.docs_enabled = True
+        self.api_title = title
+        self.api_version = version
+        self.doc_generator = APIDocGenerator(title, version)
+        self.doc_generator.description = description
+        
+        print(f"📚 Auto-documentation enabled:")
+        print(f"   Swagger UI: http://{self.host}:{self.port}/docs")
+        print(f"   OpenAPI spec: http://{self.host}:{self.port}/openapi.json")
     
     def match_route(self, request: HTTPRequest):
         """
@@ -361,10 +425,10 @@ class Conduit:
     
     def handle_request(self, request: HTTPRequest) -> HTTPResponse:
         """
-        Handle incoming HTTP request
+        Handle incoming HTTP request with middleware
         
-        Routes the request to the appropriate handler.
-        Calls plugin-generated optimized dispatch function.
+        Routes the request to the appropriate handler and applies middleware.
+        Middleware can modify responses (add headers, log, etc).
         
         Args:
             request: Parsed HTTP request
@@ -372,9 +436,84 @@ class Conduit:
         Returns:
             HTTP response
         """
-        # Phase 3: Call plugin-generated optimized dispatch
-        # The plugin generates conduit_plugin_dispatch at compile time
-        return conduit_plugin_dispatch(request.method, request.path, request)
+        # Check for auto-docs routes first
+        if self.docs_enabled:
+            if request.path == "/docs":
+                return self.serve_docs()
+            elif request.path == "/openapi.json":
+                return self.serve_openapi_json()
+        
+        # Call plugin dispatch to get response
+        try:
+            response = conduit_plugin_dispatch(request.method, request.path, request)
+        except:
+            # Fallback for unmatched routes (404)
+            response = not_found_json(request.path)
+        
+        # Apply middleware post-processing
+        response = self.middleware_chain.execute_post_process(request, response)
+        
+        return response
+    
+    def serve_docs(self) -> HTTPResponse:
+        """Serve Swagger UI HTML for interactive API documentation"""
+        if not self.docs_enabled:
+            return not_found_json("/docs")
+        
+        # Generate OpenAPI spec from registered routes
+        self._populate_docs()
+        
+        # Get branded Swagger UI HTML
+        html = self.doc_generator.generate_swagger_html()
+        
+        response = HTTPResponse(200)
+        response.body = html
+        response.set_header("Content-Type", "text/html; charset=utf-8")
+        response.set_header("Content-Length", str(len(html)))
+        return response
+    
+    def serve_openapi_json(self) -> HTTPResponse:
+        """Serve OpenAPI 3.0 JSON specification"""
+        if not self.docs_enabled:
+            return not_found_json("/openapi.json")
+        
+        # Generate OpenAPI spec from registered routes
+        self._populate_docs()
+        
+        # Get OpenAPI JSON
+        spec_json = self.doc_generator.generate_openapi_json()
+        
+        response = HTTPResponse(200)
+        response.body = spec_json
+        response.set_header("Content-Type", "application/json")
+        response.set_header("Content-Length", str(len(spec_json)))
+        return response
+    
+    def _populate_docs(self):
+        """Populate doc_generator with route information"""
+        # Clear existing routes
+        self.doc_generator.routes = []
+        
+        # Add documentation for each registered route
+        for route_info in self.route_info:
+            route_doc = RouteDoc(route_info.pattern, route_info.method)
+            route_doc.set_summary(f"{route_info.method} {route_info.pattern}")
+            
+            # Use route name if available, otherwise generic description
+            if route_info.name:
+                route_doc.set_description(f"Handler: {route_info.name}")
+            else:
+                route_doc.set_description(f"Endpoint: {route_info.pattern}")
+            
+            # Extract path parameters
+            if ":" in route_info.pattern:
+                parts = route_info.pattern.split("/")
+                for part in parts:
+                    if part.startswith(":"):
+                        param_name = part[1:]
+                        route_doc.add_param(param_name, "string")
+            
+            self.doc_generator.add_route(route_doc)
     
     def _get_status_text(self, status: int) -> str:
         """Get status text for status code"""
