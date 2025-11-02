@@ -38,6 +38,18 @@ def get_user(request: HTTPRequest) -> HTTPResponse:
     response.set_content_type("application/json")
     return response
 
+@app.get("/search")
+def search(request: HTTPRequest) -> HTTPResponse:
+    # Test query parameter extraction
+    query_term = request.query.get("q", "")
+    page = request.query.get("page", "1")
+    limit = request.query.get("limit", "10")
+    
+    body = '{"query": "' + query_term + '", "page": ' + page + ', "limit": ' + limit + ', "results": []}'
+    response = HTTPResponse(200, body)
+    response.set_content_type("application/json")
+    return response
+
 # Print detected routes
 print("\n" + "=" * 70)
 print("Conduit Framework + Plugin Integration Test")
