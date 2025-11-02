@@ -26,7 +26,16 @@ def about(request: HTTPRequest) -> HTTPResponse:
 
 @app.post("/submit")
 def submit(request: HTTPRequest) -> HTTPResponse:
-    response = HTTPResponse(201, '{"status": "created", "message": "Data submitted"}')
+    # Parse JSON body
+    data = request.parse_json()
+    
+    # Extract fields with defaults
+    name = data.get("name", "unknown")
+    email = data.get("email", "no-email")
+    
+    # Build response with received data
+    response_body = '{"status": "created", "received": {"name": "' + name + '", "email": "' + email + '"}}'
+    response = HTTPResponse(201, response_body)
     response.set_content_type("application/json")
     return response
 
