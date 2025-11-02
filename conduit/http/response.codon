@@ -22,6 +22,73 @@ class HTTPResponse:
         """Set Content-Type header"""
         self.headers["Content-Type"] = content_type
     
+    def json(self, data: Dict[str, str], status_code: int = 200) -> HTTPResponse:
+        """
+        Create JSON response from dictionary
+        
+        Args:
+            data: Dictionary to serialize as JSON
+            status_code: HTTP status code (default 200)
+            
+        Returns:
+            HTTPResponse with JSON content
+        """
+        # Simple JSON serialization for Dict[str, str]
+        pairs: List[str] = []
+        for key in data:
+            value = data[key]
+            # Escape quotes in value
+            escaped_value = value.replace('"', '\\"')
+            pairs.append(f'"{key}": "{escaped_value}"')
+        
+        json_body = "{" + ", ".join(pairs) + "}"
+        
+        self.status_code = status_code
+        self.status_text = get_status_text(status_code)
+        self.body = json_body
+        self.set_content_type("application/json")
+        self.headers["Content-Length"] = str(len(json_body))
+        
+        return self
+    
+    def html(self, content: str, status_code: int = 200) -> HTTPResponse:
+        """
+        Create HTML response
+        
+        Args:
+            content: HTML content
+            status_code: HTTP status code (default 200)
+            
+        Returns:
+            HTTPResponse with HTML content
+        """
+        self.status_code = status_code
+        self.status_text = get_status_text(status_code)
+        self.body = content
+        self.set_content_type("text/html; charset=utf-8")
+        self.headers["Content-Length"] = str(len(content))
+        
+        return self
+    
+    def redirect(self, location: str, permanent: bool = False) -> HTTPResponse:
+        """
+        Create redirect response
+        
+        Args:
+            location: URL to redirect to
+            permanent: If True, use 301 (permanent), else 302 (temporary)
+            
+        Returns:
+            HTTPResponse with redirect
+        """
+        self.status_code = 301 if permanent else 302
+        self.status_text = get_status_text(self.status_code)
+        self.body = ""
+        self.set_header("Location", location)
+        self.headers["Content-Length"] = "0"
+        
+        return self
+    
     def to_bytes(self) -> str:
         """
         Convert response to HTTP/1.1 format string
@@ -127,6 +194,17 @@ def not_found(message: str = "Not Found") -> HTTPResponse:
     return response
 
 
+def not_found_json(path: str = "") -> HTTPResponse:
+    """Create 404 Not Found JSON response"""
+    if path:
+        body = '{"error": "Not Found", "message": "Route not found: ' + path + '", "status": 404}'
+    else:
+        body = '{"error": "Not Found", "message": "The requested resource was not found", "status": 404}'
+    response = HTTPResponse(404, body)
+    response.set_content_type("application/json")
+    return response
+
+
 def bad_request(message: str = "Bad Request") -> HTTPResponse:
     """Create 400 Bad Request response"""
     response = HTTPResponse(400, message)
@@ -134,10 +212,29 @@ def bad_request(message: str = "Bad Request") -> HTTPResponse:
     return response
 
 
+def bad_request_json(message: str = "Bad Request") -> HTTPResponse:
+    """Create 400 Bad Request JSON response"""
+    body = '{"error": "Bad Request", "message": "' + message + '", "status": 400}'
+    response = HTTPResponse(400, body)
+    response.set_content_type("application/json")
+    return response
+
+
 def internal_error(message: str = "Internal Server Error") -> HTTPResponse:
     """Create 500 Internal Server Error response"""
     response = HTTPResponse(500, message)
     response.set_content_type("text/plain")
+    return response
+
+
+def internal_error_json(error: str = "") -> HTTPResponse:
+    """Create 500 Internal Server Error JSON response"""
+    if error:
+        body = '{"error": "Internal Server Error", "message": "' + error + '", "status": 500}'
+    else:
+        body = '{"error": "Internal Server Error", "message": "An unexpected error occurred", "status": 500}'
+    response = HTTPResponse(500, body)
+    response.set_content_type("application/json")
     return response
 
 

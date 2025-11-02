@@ -1,14 +1,24 @@
 class HTTPRequest:
     method: str
     path: str
+    query_string: str  # Raw query string
     headers: Dict[str, str]
     body: str
+    params: Dict[str, str]  # Path parameters extracted by router
+    query: Dict[str, str]   # Query parameters parsed from URL
+    _json_cache: Dict[str, str]  # Cached parsed JSON body
+    _json_parsed: bool
     
     def __init__(self):
         self.method = ""
         self.path = ""
+        self.query_string = ""
         self.headers = {}
         self.body = ""
+        self.params = {}
+        self.query = {}
+        self._json_cache = {}
+        self._json_parsed = False
     
     def get_header(self, name: str, default: str = "") -> str:
         name_lower = name.lower()
@@ -16,6 +26,62 @@ class HTTPRequest:
             if key.lower() == name_lower:
                 return self.headers[key]
         return default
+    
+    def parse_json(self) -> Dict[str, str]:
+        """
+        Parse JSON body and return as dict
+        
+        Note: Simple implementation for string-valued JSON objects only.
+        Returns cached result on subsequent calls.
+        """
+        if self._json_parsed:
+            return self._json_cache
+        
+        self._json_parsed = True
+        
+        if not self.body:
+            return self._json_cache
+        
+        # Simple JSON parsing for {"key": "value", ...} format
+        # Remove leading/trailing whitespace and braces
+        json_str = self.body.strip()
+        if not json_str.startswith("{") or not json_str.endswith("}"):
+            return self._json_cache
+        
+        # Remove braces
+        content = json_str[1:-1].strip()
+        
+        if not content:
+            return self._json_cache
+        
+        # Split by commas (simple - doesn't handle nested objects)
+        pairs = content.split(",")
+        
+        for pair in pairs:
+            pair = pair.strip()
+            if ":" not in pair:
+                continue
+            
+            parts = pair.split(":", 1)
+            key_part = parts[0].strip()
+            value_part = parts[1].strip()
+            
+            # Remove quotes from key
+            if key_part.startswith('"') and key_part.endswith('"'):
+                key = key_part[1:-1]
+            else:
+                continue
+            
+            # Remove quotes from value
+            if value_part.startswith('"') and value_part.endswith('"'):
+                value = value_part[1:-1]
+            else:
+                # Handle non-string values as strings
+                value = value_part
+            
+            self._json_cache[key] = value
+        
+        return self._json_cache
 
 def parse_request_line(line: str):
     parts = line.strip().split(" ")
@@ -31,6 +97,54 @@ def parse_request_line(line: str):
         raise ValueError(f"Invalid HTTP version: '{version}'")
     
     return (method, path, version)
+
+def parse_query_string(query_string: str) -> Dict[str, str]:
+    """
+    Parse URL query string into key-value pairs
+    
+    Args:
+        query_string: Raw query string (without leading '?')
+                     e.g., "key=value&foo=bar"
+    
+    Returns:
+        Dictionary of query parameters
+    
+    Example:
+        >>> parse_query_string("q=search&page=2")
+        {"q": "search", "page": "2"}
+    """
+    result = {}
+    
+    if not query_string:
+        return result
+    
+    # Split by '&' to get individual key=value pairs
+    pairs = query_string.split('&')
+    
+    for pair in pairs:
+        if not pair:
+            continue
+        
+        # Split by '=' to separate key and value
+        if '=' in pair:
+            parts = pair.split('=', 1)  # Split only on first '='
+            key = parts[0]
+            value = parts[1] if len(parts) > 1 else ""
+            
+            # Basic URL decoding for common cases
+            # Replace %20 with space, %2B with +, etc.
+            value = value.replace('%20', ' ')
+            value = value.replace('%2B', '+')
+            value = value.replace('%3D', '=')
+            value = value.replace('%26', '&')
+            value = value.replace('+', ' ')  # '+' also represents space
+            
+            result[key] = value
+        else:
+            # Key without value (e.g., "?flag")
+            result[pair] = ""
+    
+    return result
 
 def parse_headers(header_lines: List[str]) -> Dict[str, str]:
     headers: Dict[str, str] = {}
@@ -73,7 +187,16 @@ def parse_http_request(data: str) -> HTTPRequest:
     
     method, path, version = parse_request_line(lines[0])
     request.method = method
-    request.path = path
+    
+    # Split path and query string
+    if "?" in path:
+        path_parts = path.split("?", 1)
+        request.path = path_parts[0]
+        request.query_string = path_parts[1]
+        request.query = parse_query_string(path_parts[1])
+    else:
+        request.path = path
+        request.query_string = ""
     
     if len(lines) > 1:
         request.headers = parse_headers(lines[1:])

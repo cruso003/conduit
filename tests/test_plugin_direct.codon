@@ -1,0 +1,35 @@
+"""
+Direct test of plugin-generated dispatch function
+"""
+
+from conduit import Conduit
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+app = Conduit(port=8080)
+
+@app.get("/")
+def home(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"message": "Hello!"}')
+    response.set_content_type("application/json")
+    return response
+
+@app.get("/test")
+def test(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"status": "ok"}')
+    response.set_content_type("application/json")
+    return response
+
+# Try calling the plugin dispatch directly
+if __name__ == "__main__":
+    # Create a test request
+    req = HTTPRequest()
+    req.method = "GET"
+    req.path = "/"
+    
+    # Try to call plugin dispatch
+    try:
+        result = conduit_dispatch_bucketed("GET", "/", req)
+        print("Plugin dispatch returned:", type(result))
+    except Exception as e:
+        print("Error calling dispatch:", e)

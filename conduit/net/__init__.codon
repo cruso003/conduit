@@ -1,7 +1,7 @@
 """
-TurboX Network Module
+Conduit Network Module
 
-Low-level networking primitives.
+Low-level networking primitives (sockets, etc.).
 """
 
 from .socket import Socket, create_server_socket

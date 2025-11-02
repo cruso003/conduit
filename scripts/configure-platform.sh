@@ -1,5 +1,5 @@
 #!/bin/bash
-# TurboX Platform Configuration Script
+# Conduit Platform Configuration Script
 # Configures socket constants for target deployment platform
 
 set -e

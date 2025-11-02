@@ -1,8 +1,8 @@
-"""Version information for TurboX"""
+"""Version information for Conduit"""
 
 VERSION = "0.1.0"
 __version__ = VERSION
 
 def get_version() -> str:
-    """Get the current TurboX version"""
+    """Get the current Conduit version"""
     return VERSION

@@ -1,0 +1,125 @@
+"""
+Milestone 1 Test: Hello World
+
+Test that the basic Conduit framework works with decorators
+
+Note: Due to Codon's type system limitations, we can't store arbitrary function
+pointers, so we manually dispatch based on route matching.
+"""
+
+from conduit import Conduit
+from conduit.net.socket import Socket
+from conduit.http.request import parse_http_request
+
+app = Conduit()
+
+# Define handlers
+@app.get("/")
+def index(request):
+    return {"message": "Hello, World!"}
+
+@app.get("/users")
+def get_users(request):
+    # Return simple dict with string values
+    return {
+        "status": "success",
+        "count": "2"
+    }
+
+@app.get("/users/:id")
+def get_user(request):
+    user_id = request.params["id"]
+    return {
+        "user_id": user_id,
+        "name": "User " + user_id,
+        "status": "active"
+    }
+
+@app.post("/users")
+def create_user(request):
+    return {"created": "true", "message": "User created"}
+
+@app.get("/health")
+def health(request):
+    return {"status": "healthy", "version": "0.1.0"}
+
+# Manual server loop with route dispatch
+def start_server():
+    sock = Socket()
+    sock.set_reuseaddr()
+    sock.bind(app.host, app.port)
+    sock.listen(128)
+    
+    print("")
+    print("=" * 70)
+    print("Conduit Framework - Hello World")
+    print("=" * 70)
+    print("")
+    print(f"Server running at http://{app.host}:{app.port}")
+    print("")
+    print("Registered routes:")
+    for info in app.route_info:
+        print(f"  {info.method:6} {info.pattern}")
+    print("")
+    print("Press Ctrl+C to stop")
+    print("")
+    
+    count = 0
+    running = True
+    
+    while running:
+        try:
+            client = sock.accept()
+            count += 1
+            
+            data = client.recv(4096)
+            if len(data) == 0:
+                client.close()
+                continue
+            
+            request = parse_http_request(data)
+            print(f"[{count}] {request.method} {request.path}")
+            
+            # Match route
+            matched, route_idx, params = app.match_route(request)
+            
+            if not matched:
+                response = app.not_found_response()
+            else:
+                # Manual dispatch based on route index
+                # Routes are registered in order: /, /users, /users/:id, POST /users, /health
+                result = None
+                
+                if route_idx == 0:  # GET /
+                    result = index(request)
+                elif route_idx == 1:  # GET /users
+                    result = get_users(request)
+                elif route_idx == 2:  # GET /users/:id
+                    result = get_user(request)
+                elif route_idx == 3:  # POST /users
+                    result = create_user(request)
+                elif route_idx == 4:  # GET /health
+                    result = health(request)
+                else:
+                    response = app.error_response("Unknown route index")
+                
+                if result is not None:
+                    response = app.to_response(result)
+            
+            # Send response
+            response_str = response.to_bytes()
+            client.send(response_str)
+            client.close()
+            
+        except Exception as e:
+            print(f"[Error] {e}")
+            try:
+                client.close()
+            except:
+                pass
+    
+    sock.close()
+    print("Server stopped.")
+
+if __name__ == "__main__":
+    start_server()

@@ -1,14 +1,14 @@
 """
-TurboX Hello World Example
+Conduit Hello World Example
 
-The simplest possible TurboX server.
+The simplest possible Conduit server.
 """
 
 # Note: This is a placeholder until we build the actual Socket class
 # For now, just demonstrate the intended API
 
 def main():
-    print("TurboX v0.1.0")
+    print("Conduit v0.1.0")
     print("Hello World example")
     print("")
     print("This example will work once we implement:")

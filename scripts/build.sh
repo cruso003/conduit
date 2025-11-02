@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Building TurboX..."
+echo "Building Conduit..."
 
 # Check if Codon is installed
 if ! command -v codon &> /dev/null; then

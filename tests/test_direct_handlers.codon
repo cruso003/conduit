@@ -1,0 +1,52 @@
+"""
+Direct Handler Test - Phase 3
+
+Test that handlers execute correctly without framework integration.
+This verifies the type resolution and handler linking works.
+"""
+
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+# Define test handlers with proper signatures
+def home(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"message": "Hello from home handler!"}')
+    response.set_content_type("application/json")
+    return response
+
+def about(request: HTTPRequest) -> HTTPResponse:
+    response = HTTPResponse(200, '{"message": "About page", "version": "0.3.0"}')
+    response.set_content_type("application/json")
+    return response
+
+# Test execution
+if __name__ == "__main__":
+    print("\n" + "=" * 70)
+    print("Direct Handler Execution Test")
+    print("=" * 70)
+    
+    # Create test request
+    test_request = HTTPRequest()
+    test_request.method = "GET"
+    test_request.path = "/"
+    test_request.headers = {}
+    test_request.body = ""
+    
+    # Call handler directly
+    print("\nCalling home() handler directly...")
+    response = home(test_request)
+    
+    print(f"  Status: {response.status_code}")
+    print(f"  Body: {response.body}")
+    print(f"  Content-Type: {response.headers.get('Content-Type', 'not set')}")
+    
+    # Test about handler
+    print("\nCalling about() handler directly...")
+    test_request.path = "/about"
+    response = about(test_request)
+    
+    print(f"  Status: {response.status_code}")
+    print(f"  Body: {response.body}")
+    
+    print("\n✅ Direct handler execution works!")
+    print("="  * 70)

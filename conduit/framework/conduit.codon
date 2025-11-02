@@ -1,0 +1,593 @@
+"""
+Conduit Framework - Main API
+
+The high-level framework class that provides decorator-based routing
+and integrates all the low-level components.
+
+Note: This framework integrates with the Conduit compiler plugin for
+compile-time routing optimization. The plugin detects routes via
+add_route_metadata() calls and generates an optimized dispatch function.
+
+IMPORTANT: This framework REQUIRES compilation with the Conduit plugin:
+    codon build -plugin conduit your_app.codon
+
+The plugin generates the conduit_plugin_dispatch function at compile-time.
+"""
+
+from conduit.net.socket import Socket
+from conduit.http.request import HTTPRequest, parse_http_request  
+from conduit.http.response import HTTPResponse, not_found_json
+from conduit.http.router import Router
+from conduit.http.middleware import MiddlewareChain, LoggerMiddleware, CORSMiddleware, TimingMiddleware
+from conduit.http.docs import APIDocGenerator, RouteDoc
+
+# Helper function for path parameter matching (called from plugin-generated code)
+def match_path_pattern(path: str, pattern: str, params: Dict[str, str]) -> bool:
+    """
+    Match an incoming path against a route pattern with parameters.
+    
+    Args:
+        path: Incoming request path (e.g., "/users/123")
+        pattern: Route pattern (e.g., "/users/:id")
+        params: Dictionary to populate with extracted parameters
+    
+    Returns:
+        True if path matches pattern, False otherwise
+    
+    Example:
+        params = {}
+        if match_path_pattern("/users/123", "/users/:id", params):
+            print(params["id"])  # "123"
+    """
+    # Split both path and pattern by '/'
+    path_segments = path.split('/')[1:]  # Skip first empty segment
+    pattern_segments = pattern.split('/')[1:]
+    
+    # Must have same number of segments
+    if len(path_segments) != len(pattern_segments):
+        return False
+    
+    # Match segment by segment
+    for i in range(len(path_segments)):
+        pattern_seg = pattern_segments[i]
+        path_seg = path_segments[i]
+        
+        if pattern_seg.startswith(':'):
+            # Parameter segment - extract value
+            param_name = pattern_seg[1:]  # Remove ':' prefix
+            params[param_name] = path_seg
+        else:
+            # Static segment - must match exactly
+            if pattern_seg != path_seg:
+                return False
+    
+    return True
+
+# Default 404 handler - used by plugin when routes don't match
+def _conduit_default_404(path: str = "") -> HTTPResponse:
+    """Default 404 handler called by plugin-generated dispatch"""
+    return not_found_json(path)
+
+# Plugin replaces this stub's body at compile-time
+def conduit_plugin_dispatch(method: str, path: str, request: HTTPRequest) -> HTTPResponse:
+    # This body will be replaced by the plugin
+    # If you see this message, the plugin didn't run!
+    return HTTPResponse(500, "ERROR: Plugin did not generate dispatch function")
+
+# Plugin metadata function - intercepted by compiler plugin
+def conduit_dispatch_bucketed(method: str, path: str, request: HTTPRequest) -> HTTPResponse:
+    """
+    Dispatch function that routes requests to handlers
+    
+    This function calls the plugin-generated optimized dispatch.
+    When compiled with -plugin conduit, routes to the plugin version.
+    Without the plugin, returns an error.
+    """
+    return __plugin_dispatch_bucketed__(method, path, request)
+
+# Plugin metadata function - intercepted by compiler plugin
+def add_route_metadata(method: str, path: str, handler_name: str):
+    """
+    Route registration metadata for compiler plugin
+    
+    This function is called by decorators to register route metadata.
+    The Conduit compiler plugin intercepts these calls during compilation
+    to generate optimized dispatch code.
+    
+    Args:
+        method: HTTP method (GET, POST, etc.)
+        path: Route pattern (/users/:id)
+        handler_name: Name of the handler function
+    """
+    # Empty implementation - plugin intercepts the IR call
+    pass
+
+class RouteInfo:
+    """Information about a registered route"""
+    pattern: str
+    method: str
+    name: str
+    
+    def __init__(self, pattern: str, method: str, name: str = ""):
+        self.pattern = pattern
+        self.method = method
+        self.name = name
+
+class Conduit:
+    """
+    Main framework class for building web applications
+    
+    Example:
+        app = Conduit()
+        
+        @app.get("/")
+        def index(request):
+            return {"message": "Hello, World!"}
+        
+        app.run()
+    """
+    
+    host: str
+    port: int
+    router: Router
+    route_info: List[RouteInfo]  # Metadata about routes
+    middleware_chain: MiddlewareChain  # Middleware chain
+    running: bool
+    _dispatch_fn_set: bool  # Flag to track if dispatch is configured
+    
+    # Auto-documentation fields
+    docs_enabled: bool
+    doc_generator: APIDocGenerator
+    api_title: str
+    api_version: str
+    
+    def __init__(self, host: str = "0.0.0.0", port: int = 8000):
+        """Initialize Conduit application"""
+        self.host = host
+        self.port = port
+        self.router = Router()
+        self.route_info = []
+        self.middleware_chain = MiddlewareChain()
+        self.running = False
+        self._dispatch_fn_set = False
+        self.docs_enabled = False
+        self.api_title = "API"
+        self.api_version = "1.0.0"
+    
+    def add_route_metadata(self, pattern: str, method: str, name: str = ""):
+        """Register route metadata (called by decorators)"""
+        # Register with runtime router for fallback
+        self.router.add_route(pattern, method)
+        self.route_info.append(RouteInfo(pattern, method, name))
+    
+    def get(self, pattern: str):
+        """
+        Decorator for GET routes
+        
+        Example:
+            @app.get("/users")
+            def get_users(request):
+                return {"users": []}
+        """
+        def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("GET", pattern, handler.__name__)
+            
+            # Register with runtime router
+            self.add_route_metadata(pattern, "GET", handler.__name__)
+            return handler
+        return decorator
+    
+    def post(self, pattern: str):
+        """Decorator for POST routes"""
+        def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("POST", pattern, handler.__name__)
+            
+            # Register with runtime router
+            self.add_route_metadata(pattern, "POST", handler.__name__)
+            return handler
+        return decorator
+    
+    def put(self, pattern: str):
+        """Decorator for PUT routes"""
+        def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("PUT", pattern, handler.__name__)
+            
+            # Register with runtime router
+            self.add_route_metadata(pattern, "PUT", handler.__name__)
+            return handler
+        return decorator
+    
+    def delete(self, pattern: str):
+        """Decorator for DELETE routes"""
+        def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("DELETE", pattern, handler.__name__)
+            
+            # Register with runtime router
+            self.add_route_metadata(pattern, "DELETE", handler.__name__)
+            return handler
+        return decorator
+    
+    def patch(self, pattern: str):
+        """Decorator for PATCH routes"""
+        def decorator(handler):
+            # Call global metadata function (plugin intercepts this)
+            add_route_metadata("PATCH", pattern, handler.__name__)
+            
+            # Register with runtime router
+            self.add_route_metadata(pattern, "PATCH", handler.__name__)
+            return handler
+        return decorator
+    
+    def use(self, middleware):
+        """
+        Register middleware to process requests/responses
+        
+        Example:
+            from conduit.http.middleware_simple import logger_middleware, cors_middleware
+            
+            app.use(logger_middleware())
+            app.use(cors_middleware("*"))
+        """
+        # Dispatch to appropriate add method based on type
+        if isinstance(middleware, LoggerMiddleware):
+            self.middleware_chain.add_logger(middleware)
+        elif isinstance(middleware, CORSMiddleware):
+            self.middleware_chain.add_cors(middleware)
+        elif isinstance(middleware, TimingMiddleware):
+            self.middleware_chain.add_timing(middleware)
+    
+    def enable_docs(self, title: str = "API Documentation", version: str = "1.0.0", 
+                    description: str = "API built with Conduit"):
+        """
+        Enable auto-documentation with Swagger UI
+        
+        Serves interactive API docs at /docs and OpenAPI spec at /openapi.json
+        
+        Args:
+            title: API title
+            version: API version
+            description: API description
+            
+        Example:
+            app = Conduit()
+            app.enable_docs(title="My API", version="2.0.0")
+            app.run()
+            # Visit http://localhost:8000/docs
+        """
+        self.docs_enabled = True
+        self.api_title = title
+        self.api_version = version
+        self.doc_generator = APIDocGenerator(title, version)
+        self.doc_generator.description = description
+        
+        print(f"📚 Auto-documentation enabled:")
+        print(f"   Swagger UI: http://{self.host}:{self.port}/docs")
+        print(f"   OpenAPI spec: http://{self.host}:{self.port}/openapi.json")
+    
+    def match_route(self, request: HTTPRequest):
+        """
+        Match a route and extract parameters
+        
+        Returns (matched: bool, route_idx: int, params: Dict[str, str])
+        """
+        matched, route_idx, params = self.router.match(request.path, request.method)
+        
+        if matched:
+            request.params = params
+        
+        return (matched, route_idx, params)
+    
+    def print_dispatch_code(self):
+        """
+        Print dispatch boilerplate code for copy-paste
+        
+        Due to Codon's type system limitations, we cannot store arbitrary
+        function pointers in collections. This helper generates the manual
+        dispatch code you need to add to your server loop.
+        
+        Call this after registering all routes to see the code you need.
+        """
+        num_routes = len(self.route_info)
+        
+        print("")
+        print("=" * 70)
+        print(f"Dispatch Code for {num_routes} Routes")
+        print("=" * 70)
+        print("")
+        print("Copy this into your server loop (after match_route):")
+        print("")
+        print("if matched:")
+        
+        for i in range(num_routes):
+            route = self.route_info[i]
+            if i == 0:
+                print(f"    if route_idx == {i}:  # {route.method} {route.pattern}")
+            else:
+                print(f"    elif route_idx == {i}:  # {route.method} {route.pattern}")
+            print(f"        response = app.to_response(handler_{i}(request))")
+        
+        print("    else:")
+        print("        response = app.error_response(\"Unknown route index\")")
+        print("else:")
+        print("    response = app.not_found_response()")
+        print("")
+        print("=" * 70)
+        print("")
+        print("Handler mapping:")
+        for i in range(num_routes):
+            route = self.route_info[i]
+            print(f"  handler_{i} = {route.name}  # {route.method} {route.pattern}")
+        print("")
+    
+    def not_found_response(self) -> HTTPResponse:
+        """Generate 404 response"""
+        response = HTTPResponse(404, '{"error": "Route not found"}')
+        response.set_content_type("application/json")
+        return response
+    
+    def error_response(self, error_msg: str) -> HTTPResponse:
+        """Generate 500 error response"""
+        json_msg = '{"error": "' + error_msg + '"}'
+        response = HTTPResponse(500, json_msg)
+        response.set_content_type("application/json")
+        return response
+    
+    def to_response(self, result) -> HTTPResponse:
+        """
+        Convert handler return value to HTTPResponse
+        
+        Supports:
+        - HTTPResponse (pass through)
+        - Dict (convert to JSON)
+        - Tuple[Dict, int] (JSON with status code)
+        - str (plain text)
+        """
+        # Already an HTTPResponse
+        if isinstance(result, HTTPResponse):
+            return result
+        
+        # Dict - convert to JSON
+        if isinstance(result, dict):
+            json_str = self._dict_to_json(result)
+            response = HTTPResponse(200, json_str)
+            response.set_content_type("application/json")
+            return response
+        
+        # Tuple of (dict, status_code)
+        if isinstance(result, tuple) and len(result) == 2:
+            data, status = result
+            if isinstance(data, dict):
+                json_str = self._dict_to_json(data)
+                response = HTTPResponse(status, json_str)
+                response.set_content_type("application/json")
+                return response
+        
+        # String - plain text
+        if isinstance(result, str):
+            response = HTTPResponse(200, result)
+            response.set_content_type("text/plain")
+            return response
+        
+        # Fallback - convert to string
+        response = HTTPResponse(200, str(result))
+        response.set_content_type("text/plain")
+        return response
+    
+    def _dict_to_json(self, data: Dict) -> str:
+        """
+        Convert dict to JSON string
+        
+        Simple implementation - handle common cases
+        """
+        pairs = []
+        for key in data:
+            value = data[key]
+            
+            # Format value based on type
+            if isinstance(value, str):
+                value_str = '"' + value + '"'
+            elif isinstance(value, int):
+                value_str = str(value)
+            elif isinstance(value, float):
+                value_str = str(value)
+            elif isinstance(value, bool):
+                value_str = "true" if value else "false"
+            elif isinstance(value, list):
+                # Simple list handling
+                value_str = self._list_to_json(value)
+            elif isinstance(value, dict):
+                # Nested dict
+                value_str = self._dict_to_json(value)
+            else:
+                value_str = '"' + str(value) + '"'
+            
+            pair = '"' + key + '": ' + value_str
+            pairs.append(pair)
+        
+        return '{' + ', '.join(pairs) + '}'
+    
+    def _list_to_json(self, items: List) -> str:
+        """Convert list to JSON array string"""
+        json_items = []
+        for item in items:
+            if isinstance(item, str):
+                json_items.append('"' + item + '"')
+            elif isinstance(item, dict):
+                json_items.append(self._dict_to_json(item))
+            else:
+                json_items.append(str(item))
+        
+        return '[' + ', '.join(json_items) + ']'
+    
+    def handle_request(self, request: HTTPRequest) -> HTTPResponse:
+        """
+        Handle incoming HTTP request with middleware
+        
+        Routes the request to the appropriate handler and applies middleware.
+        Middleware can modify responses (add headers, log, etc).
+        
+        Args:
+            request: Parsed HTTP request
+            
+        Returns:
+            HTTP response
+        """
+        # Check for auto-docs routes first
+        if self.docs_enabled:
+            if request.path == "/docs":
+                return self.serve_docs()
+            elif request.path == "/openapi.json":
+                return self.serve_openapi_json()
+        
+        # Call plugin dispatch to get response
+        try:
+            response = conduit_plugin_dispatch(request.method, request.path, request)
+        except:
+            # Fallback for unmatched routes (404)
+            response = not_found_json(request.path)
+        
+        # Apply middleware post-processing
+        response = self.middleware_chain.execute_post_process(request, response)
+        
+        return response
+    
+    def serve_docs(self) -> HTTPResponse:
+        """Serve Swagger UI HTML for interactive API documentation"""
+        if not self.docs_enabled:
+            return not_found_json("/docs")
+        
+        # Generate OpenAPI spec from registered routes
+        self._populate_docs()
+        
+        # Get branded Swagger UI HTML
+        html = self.doc_generator.generate_swagger_html()
+        
+        response = HTTPResponse(200)
+        response.body = html
+        response.set_header("Content-Type", "text/html; charset=utf-8")
+        response.set_header("Content-Length", str(len(html)))
+        return response
+    
+    def serve_openapi_json(self) -> HTTPResponse:
+        """Serve OpenAPI 3.0 JSON specification"""
+        if not self.docs_enabled:
+            return not_found_json("/openapi.json")
+        
+        # Generate OpenAPI spec from registered routes
+        self._populate_docs()
+        
+        # Get OpenAPI JSON
+        spec_json = self.doc_generator.generate_openapi_json()
+        
+        response = HTTPResponse(200)
+        response.body = spec_json
+        response.set_header("Content-Type", "application/json")
+        response.set_header("Content-Length", str(len(spec_json)))
+        return response
+    
+    def _populate_docs(self):
+        """Populate doc_generator with route information"""
+        # Clear existing routes
+        self.doc_generator.routes = []
+        
+        # Add documentation for each registered route
+        for route_info in self.route_info:
+            route_doc = RouteDoc(route_info.pattern, route_info.method)
+            route_doc.set_summary(f"{route_info.method} {route_info.pattern}")
+            
+            # Use route name if available, otherwise generic description
+            if route_info.name:
+                route_doc.set_description(f"Handler: {route_info.name}")
+            else:
+                route_doc.set_description(f"Endpoint: {route_info.pattern}")
+            
+            # Extract path parameters
+            if ":" in route_info.pattern:
+                parts = route_info.pattern.split("/")
+                for part in parts:
+                    if part.startswith(":"):
+                        param_name = part[1:]
+                        route_doc.add_param(param_name, "string")
+            
+            self.doc_generator.add_route(route_doc)
+    
+    def _get_status_text(self, status: int) -> str:
+        """Get status text for status code"""
+        status_texts = {
+            200: "OK",
+            201: "Created",
+            204: "No Content",
+            400: "Bad Request",
+            401: "Unauthorized",
+            403: "Forbidden",
+            404: "Not Found",
+            500: "Internal Server Error",
+            502: "Bad Gateway",
+            503: "Service Unavailable"
+        }
+        
+        if status in status_texts:
+            return status_texts[status]
+        return "Unknown"
+    
+    def run(self, host: str = "", port: int = 0):
+        """
+        Start the application server
+        
+        Args:
+            host: Override host (default: use constructor value)
+            port: Override port (default: use constructor value)
+        """
+        # Use override or default
+        if host:
+            self.host = host
+        if port > 0:
+            self.port = port
+        
+        # Create socket
+        sock = Socket()
+        sock.bind(self.host, self.port)
+        sock.listen(128)
+        self.running = True
+        
+        print("")
+        print("======================================================================")
+        print("Conduit Framework")
+        print("======================================================================")
+        print("")
+        print("Server running at http://" + self.host + ":" + str(self.port))
+        print("")
+        print("Registered routes:")
+        # Skip route printing to avoid type error
+        print("  " + str(len(self.router.routes)) + " route(s) registered")
+        print("")
+        print("Press Ctrl+C to stop")
+        print("")
+        
+        # Accept loop
+        while self.running:
+            client = sock.accept()
+            
+            # Read request
+            data = client.recv(4096)
+            if len(data) == 0:
+                client.close()
+                continue
+            
+            # Parse HTTP request
+            request = parse_http_request(data)
+            
+            # Handle request
+            response = self.handle_request(request)
+            
+            # Send response
+            response_str = response.to_bytes()
+            client.send(response_str)
+            client.close()
+        
+        sock.close()
+        print("Server stopped.")

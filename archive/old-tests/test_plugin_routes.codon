@@ -1,0 +1,21 @@
+"""
+Simple test to see route detection in action
+"""
+
+from conduit.framework.conduit import Conduit
+
+app = Conduit()
+
+@app.get("/")
+def index(request):
+    return {"message": "Hello"}
+
+@app.post("/users")
+def create_user(request):
+    return {"created": True}
+
+@app.get("/users/:id")
+def get_user(request):
+    return {"id": request.params.get("id", "")}
+
+print("Routes defined successfully!")

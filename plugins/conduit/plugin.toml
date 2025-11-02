@@ -1,0 +1,9 @@
+[about]
+name = "Conduit"
+description = "Compile-time routing optimization for Conduit web framework"
+version = "0.1.0"
+url = "https://github.com/cruso003/conduit"
+supported = ">=0.16.0"
+
+[library]
+cpp = "build/libconduit"

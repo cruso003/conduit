@@ -1,16 +1,14 @@
 """
-TurboX Echo Server Example
+Conduit Echo Server Example
 
-A simple TCP echo server that reflects back whatever it receives.
-This demonstrates the basic Socket API.
+Demonstrates basic request/response handling.
 """
 
 from conduit.net import Socket
 
 def main():
-    print("TurboX Echo Server")
-    print("==================")
-    print("")
+    print("Conduit Echo Server")
+    print("Listening on http://localhost:8080")
     
     # Create server socket
     try:

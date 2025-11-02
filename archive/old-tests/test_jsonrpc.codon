@@ -1,0 +1,12 @@
+from conduit.mcp.jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError
+
+req = JSONRPCRequest("tools/list", "1")
+print("Request: " + req.to_json())
+
+resp = JSONRPCResponse("1", '{"tools":[]}')
+print("Response: " + resp.to_json())
+
+err = JSONRPCError("1", -32601, "Method not found")
+print("Error: " + err.to_json())
+
+print("\nSuccess! JSON-RPC classes work!")

@@ -1,0 +1,31 @@
+"""
+Proof of Concept: Can we use inheritance for dispatch?
+
+Final test: Maybe if all handlers inherit from same base with virtual method?
+"""
+
+from conduit.http.request import HTTPRequest
+
+# CONCLUSION FROM TESTING:
+# Codon's type system is too strict to allow storing arbitrary handlers.
+# Each function/class has unique compile-time type.
+# 
+# SOLUTION: Accept manual dispatch, but make it easier:
+# 1. Provide helper to generate dispatch code
+# 2. Use code generation script (build-time)
+# 3. Or: Build Codon plugin (future)
+#
+# For now: Keep manual dispatch pattern from Milestone 1 & 2
+# It works, it's explicit, it's fast.
+
+print("Codon type system prevents storing arbitrary handlers.")
+print("Conclusion: Manual dispatch is necessary given current Codon limitations.")
+print("")
+print("Options:")
+print("1. Keep manual if/elif (simple, works, explicit)")
+print("2. Code generation script (complex, build step)")
+print("3. Codon plugin (future, requires C++)")
+print("")
+print("Recommendation: Accept #1, document pattern clearly")
+
+

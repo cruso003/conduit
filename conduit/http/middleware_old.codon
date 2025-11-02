@@ -1,0 +1,168 @@
+"""
+Middleware support for Conduit framework
+
+Middleware functions can intercept and modify requests/responses.
+They execute in a chain before and after the main handler.
+"""
+
+from conduit.http.request import HTTPRequest
+from conduit.http.response import HTTPResponse
+
+class Middleware:
+    """
+    Base middleware class
+    """
+    
+    name: str
+    
+    def __init__(self, name: str):
+        self.name = name
+    
+    def process(self, request: HTTPRequest, next_handler) -> HTTPResponse:
+        """Execute middleware - override in subclasses"""
+        return next_handler(request)
+
+
+# Concrete middleware implementations
+
+class LoggerMiddleware(Middleware):
+    """Logging middleware"""
+    prefix: str
+    
+    def __init__(self, prefix: str = "[REQUEST]"):
+        Middleware.__init__(self, "logger")
+        self.prefix = prefix
+    
+    def process(self, request: HTTPRequest, next_handler) -> HTTPResponse:
+        print(f"{self.prefix} {request.method} {request.path}")
+        response = next_handler(request)
+        print(f"{self.prefix} -> {response.status_code}")
+        return response
+
+
+class CORSMiddleware(Middleware):
+    """CORS middleware"""
+    origin: str
+    
+    def __init__(self, origin: str = "*"):
+        Middleware.__init__(self, "cors")
+        self.origin = origin
+    
+    def process(self, request: HTTPRequest, next_handler) -> HTTPResponse:
+        response = next_handler(request)
+        response.set_header("Access-Control-Allow-Origin", self.origin)
+        response.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        response.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        return response
+
+
+class TimingMiddleware(Middleware):
+    """Timing middleware"""
+    
+    def __init__(self):
+        Middleware.__init__(self, "timing")
+    
+    def process(self, request: HTTPRequest, next_handler) -> HTTPResponse:
+        import time
+        start = time.time()
+        response = next_handler(request)
+        duration = (time.time() - start) * 1000
+        response.set_header("X-Response-Time", f"{duration:.2f}ms")
+        return response
+
+
+class MiddlewareChain:
+    """
+    Chain of middleware functions to execute in sequence
+    """
+    
+    loggers: List[LoggerMiddleware]
+    cors_middleware: List[CORSMiddleware]
+    timings: List[TimingMiddleware]
+    
+    def __init__(self):
+        self.loggers = []
+        self.cors_middleware = []
+        self.timings = []
+    
+    def add(self, middleware: Middleware):
+        """Add middleware to the chain"""
+        print(f"[DEBUG] Adding middleware: {middleware.name}, type: {type(middleware).__name__}")
+        
+        # Use name-based dispatch since isinstance may not work correctly
+        if middleware.name == "logger":
+            print(f"[DEBUG] Adding to loggers list")
+            # Cast to LoggerMiddleware
+            logger = LoggerMiddleware.__new__(LoggerMiddleware)
+            logger.name = middleware.name
+            if hasattr(middleware, 'prefix'):
+                logger.prefix = middleware.prefix  # type: ignore
+            else:
+                logger.prefix = "[REQUEST]"
+            self.loggers.append(logger)
+        elif middleware.name == "cors":
+            print(f"[DEBUG] Adding to cors list")
+            cors = CORSMiddleware.__new__(CORSMiddleware)
+            cors.name = middleware.name
+            if hasattr(middleware, 'origin'):
+                cors.origin = middleware.origin  # type: ignore
+            else:
+                cors.origin = "*"
+            self.cors_middleware.append(cors)
+        elif middleware.name == "timing":
+            print(f"[DEBUG] Adding to timing list")
+            timing = TimingMiddleware.__new__(TimingMiddleware)
+            timing.name = middleware.name
+            self.timings.append(timing)
+    
+    def execute_post_process(self, request: HTTPRequest, response: HTTPResponse) -> HTTPResponse:
+        """
+        Execute middleware for post-processing
+        
+        Args:
+            request: The HTTP request
+            response: The response from the handler
+            
+        Returns:
+            Modified HTTP response
+        """
+        print(f"[DEBUG] execute_post_process called")
+        print(f"[DEBUG] Loggers: {len(self.loggers)}, CORS: {len(self.cors_middleware)}, Timing: {len(self.timings)}")
+        
+        # Process logger middleware
+        for logger in self.loggers:
+            print(f"{logger.prefix} {request.method} {request.path}")
+            print(f"{logger.prefix} -> {response.status_code}")
+        
+        # Process CORS middleware
+        for cors in self.cors_middleware:
+            print(f"[DEBUG] Setting CORS header: {cors.origin}")
+            response.set_header("Access-Control-Allow-Origin", cors.origin)
+            response.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+            response.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            print(f"[DEBUG] CORS headers set")
+        
+        # Process timing middleware
+        for timing in self.timings:
+            print(f"[DEBUG] Setting timing header")
+            response.set_header("X-Response-Time", "0.00ms")
+        
+        print(f"[DEBUG] execute_post_process done, response has {len(response.headers)} headers")
+        return response
+
+
+# Factory functions for convenience
+def logger_middleware(prefix: str = "[REQUEST]") -> Middleware:
+    """Create logging middleware"""
+    return LoggerMiddleware(prefix)
+
+
+def cors_middleware(origin: str = "*") -> Middleware:
+    """Create CORS middleware"""
+    return CORSMiddleware(origin)
+
+
+def timing_middleware() -> Middleware:
+    """Create timing middleware"""
+    return TimingMiddleware()
+
