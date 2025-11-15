@@ -20,6 +20,7 @@ from conduit.http.response import HTTPResponse, not_found_json
 from conduit.http.router import Router
 from conduit.http.middleware import MiddlewareChain, LoggerMiddleware, CORSMiddleware, TimingMiddleware
 from conduit.http.docs import APIDocGenerator, RouteDoc
+from conduit.mcp.simple_http_client import SimpleAPITools
 
 # Helper function for path parameter matching (called from plugin-generated code)
 def match_path_pattern(path: str, pattern: str, params: Dict[str, str]) -> bool:
@@ -113,6 +114,130 @@ class RouteInfo:
         self.method = method
         self.name = name
 
+class MCPTool:
+    """Information about a registered MCP tool"""
+    name: str
+    description: str
+    handler_func: Optional[Callable]
+    input_schema: Optional[dict]
+    
+    def __init__(self, name: str, description: str = "", handler_func: Optional[Callable] = None):
+        self.name = name
+        self.description = description  
+        self.handler_func = handler_func
+        self.input_schema = None
+
+class MCPServer:
+    """Integrated MCP server for the framework"""
+    
+    def __init__(self):
+        """Initialize MCP server."""
+        self.tools = []
+        self.api_tools = SimpleAPITools()
+        self.total_requests = 0
+        self.total_token_savings = 0
+    
+    def register_tool(self, tool: MCPTool):
+        """Register a new MCP tool."""
+        self.tools.append(tool)
+    
+    def optimize_json(self, json_str: str) -> str:
+        """Apply token optimization to JSON response."""
+        optimized = json_str.replace(" ", "")
+        optimized = optimized.replace('"jsonrpc":', '"j":')
+        optimized = optimized.replace('"result":', '"r":')
+        optimized = optimized.replace('"content":', '"c":')
+        optimized = optimized.replace('"type":"text"', '"t":"txt"')
+        optimized = optimized.replace('"text":', '"tx":')
+        return optimized
+    
+    def handle_mcp_request(self, request_data: str) -> str:
+        """Handle MCP JSON-RPC request."""
+        self.total_requests += 1
+        
+        try:
+            # Simple JSON-RPC parsing
+            if '"method":"tools/list"' in request_data:
+                return self._handle_list_tools(request_data)
+            elif '"method":"tools/call"' in request_data:
+                return self._handle_tool_call(request_data)
+            elif '"method":"initialize"' in request_data:
+                return self._handle_initialize(request_data)
+            else:
+                return '{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}'
+        
+        except Exception as e:
+            return '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"Server error"}}'
+    
+    def _extract_id(self, request_data: str) -> int:
+        """Extract request ID from JSON-RPC."""
+        if '"id":' in request_data:
+            start = request_data.find('"id":') + 5
+            end = start
+            while end < len(request_data) and request_data[end].isdigit():
+                end += 1
+            if end > start:
+                return int(request_data[start:end])
+        return 1
+    
+    def _handle_list_tools(self, request_data: str) -> str:
+        """Handle tools/list request."""
+        request_id = self._extract_id(request_data)
+        
+        # Build tools list
+        tools_json = '{"tools":['
+        
+        for i, tool in enumerate(self.tools):
+            if i > 0:
+                tools_json += ','
+            tools_json += '{"name":"' + tool.name + '","description":"' + tool.description + '"}'
+        
+        tools_json += ']}'
+        
+        response = '{"jsonrpc":"2.0","id":' + str(request_id) + ',"result":' + tools_json + '}'
+        return self.optimize_json(response)
+    
+    def _handle_tool_call(self, request_data: str) -> str:
+        """Handle tools/call request.""" 
+        request_id = self._extract_id(request_data)
+        
+        # Extract tool name (simple string parsing)
+        tool_name = ""
+        if '"name":"' in request_data:
+            start = request_data.find('"name":"') + 8
+            end = request_data.find('"', start)
+            if end > start:
+                tool_name = request_data[start:end]
+        
+        # Find and execute tool
+        for tool in self.tools:
+            if tool.name == tool_name:
+                try:
+                    if tool.handler_func:
+                        # Call the tool handler
+                        result = tool.handler_func()  # Simplified - no args for now
+                        response_json = '{"content":[{"type":"text","text":"' + str(result) + '"}]}'
+                        response = '{"jsonrpc":"2.0","id":' + str(request_id) + ',"result":' + response_json + '}'
+                        
+                        # Apply token optimization
+                        original_length = len(response)
+                        optimized = self.optimize_json(response)
+                        self.total_token_savings += (original_length - len(optimized))
+                        
+                        return optimized
+                except Exception as e:
+                    pass
+        
+        # Tool not found or error
+        error_response = '{"jsonrpc":"2.0","id":' + str(request_id) + ',"error":{"code":-32000,"message":"Tool not found or error"}}'
+        return self.optimize_json(error_response)
+    
+    def _handle_initialize(self, request_data: str) -> str:
+        """Handle initialize request."""
+        request_id = self._extract_id(request_data)
+        init_response = '{"jsonrpc":"2.0","id":' + str(request_id) + ',"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"conduit-mcp","version":"1.0.0"}}}'
+        return self.optimize_json(init_response)
+
 class Conduit:
     """
     Main framework class for building web applications
@@ -153,6 +278,9 @@ class Conduit:
         self.docs_enabled = False
         self.api_title = "API"
         self.api_version = "1.0.0"
+        # MCP integration
+        self.mcp_server = None
+        self.mcp_enabled = False
     
     def add_route_metadata(self, pattern: str, method: str, name: str = ""):
         """Register route metadata (called by decorators)"""
@@ -436,7 +564,20 @@ class Conduit:
         Returns:
             HTTP response
         """
-        # Check for auto-docs routes first
+        # Check for MCP requests first
+        if self.mcp_enabled and request.path == "/mcp" and request.method == "POST":
+            # Handle MCP JSON-RPC request
+            body = request.body if hasattr(request, 'body') else ""
+            mcp_response = self.mcp_server.handle_mcp_request(body)
+            
+            # Create HTTP response
+            response = HTTPResponse(200)
+            response.body = mcp_response
+            response.set_header("Content-Type", "application/json")
+            response.set_header("Content-Length", str(len(mcp_response)))
+            return response
+        
+        # Check for auto-docs routes
         if self.docs_enabled:
             if request.path == "/docs":
                 return self.serve_docs()
@@ -534,6 +675,72 @@ class Conduit:
             return status_texts[status]
         return "Unknown"
     
+    # MCP Integration Methods
+    
+    def enable_mcp(self, path: str = "/mcp"):
+        """
+        Enable MCP (Model Context Protocol) support
+        
+        Args:
+            path: URL path for MCP endpoint (default: "/mcp")
+        """
+        if self.mcp_server is None:
+            self.mcp_server = MCPServer()
+        
+        self.mcp_enabled = True
+        
+        # Register MCP endpoint
+        def mcp_handler(request):
+            if request.method == "POST":
+                # Handle MCP JSON-RPC request
+                body = request.body if hasattr(request, 'body') else ""
+                return self.mcp_server.handle_mcp_request(body)
+            else:
+                return {"error": "MCP endpoint only accepts POST requests"}
+        
+        # Add MCP route
+        self.add_route_metadata(path, "POST", "mcp_handler")
+    
+    def tool(self, name: str, description: str = ""):
+        """
+        Decorator to register a function as an MCP tool
+        
+        Args:
+            name: Tool name for MCP protocol
+            description: Tool description
+            
+        Example:
+            @app.tool("get_weather", "Get current weather for a location")
+            def weather_tool():
+                return "Sunny, 72°F"
+        """
+        def decorator(handler):
+            if self.mcp_server is None:
+                self.mcp_server = MCPServer()
+            
+            # Create MCP tool
+            tool = MCPTool(name, description, handler)
+            self.mcp_server.register_tool(tool)
+            
+            return handler
+        return decorator
+    
+    def get_mcp_stats(self) -> Dict:
+        """
+        Get MCP server statistics
+        
+        Returns:
+            Dictionary with request count and token savings
+        """
+        if self.mcp_server is None:
+            return {"requests": 0, "token_savings": 0, "tools": 0}
+        
+        return {
+            "requests": self.mcp_server.total_requests,
+            "token_savings": self.mcp_server.total_token_savings,
+            "tools": len(self.mcp_server.tools)
+        }
+
     def run(self, host: str = "", port: int = 0):
         """
         Start the application server

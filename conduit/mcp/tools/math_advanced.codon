@@ -1,0 +1,366 @@
+# Mathematical Computing Tool for MCP
+# Provides advanced mathematical operations, statistics, and data analysis
+
+import math
+
+class MathTool:
+    """
+    Advanced mathematical computing tool for MCP.
+    
+    Provides arithmetic, statistical, algebraic, and analytical operations
+    with safe evaluation and comprehensive error handling.
+    """
+    
+    def __init__(self):
+        """Initialize mathematical tool with constants and limits."""
+        # Mathematical constants
+        self.constants = {
+            'pi': math.pi,
+            'e': math.e,
+            'tau': 2 * math.pi,
+            'phi': (1 + math.sqrt(5)) / 2,  # Golden ratio
+        }
+        
+        # Safety limits
+        self.max_iterations = 1000000
+        self.max_factorial = 170  # factorial(171) overflows
+        self.max_power = 1000
+    
+    def evaluate_expression(self, expression: str) -> str:
+        """
+        Safely evaluate a mathematical expression.
+        
+        Args:
+            expression: Mathematical expression string
+            
+        Returns:
+            JSON string with result or error
+        """
+        try:
+            # Basic validation
+            if not expression or not expression.strip():
+                return '{"error": "Empty expression"}'
+            
+            # Remove whitespace and validate characters
+            expr = expression.strip()
+            allowed_chars = set('0123456789+-*/().,eE piatu_')
+            if not all(c in allowed_chars for c in expr):
+                return '{"error": "Invalid characters in expression", "expression": "' + expr + '"}'
+            
+            # Replace constants
+            for name, value in self.constants.items():
+                expr = expr.replace(name, str(value))
+            
+            # Simple expression evaluation (limited for safety)
+            result = self._safe_eval(expr)
+            
+            if result is None:
+                return '{"error": "Expression evaluation failed", "expression": "' + expression + '"}'
+            
+            return '{"success": true, "expression": "' + expression + '", "result": ' + str(result) + '}'
+            
+        except Exception as e:
+            return '{"error": "Evaluation error", "message": "' + str(e) + '"}'
+    
+    def _safe_eval(self, expr: str):
+        """
+        Safely evaluate expression using basic arithmetic.
+        This is a simplified evaluator for demonstration.
+        """
+        try:
+            # Very basic evaluation - in production would use a proper math parser
+            # For now, handle simple arithmetic operations
+            
+            # Replace ** with ^ for power notation
+            expr = expr.replace('**', '^')
+            
+            # Handle simple cases
+            if '+' in expr:
+                parts = expr.split('+')
+                if len(parts) == 2:
+                    left = float(parts[0].strip())
+                    right = float(parts[1].strip())
+                    return left + right
+            
+            elif '-' in expr and expr.count('-') == 1 and not expr.startswith('-'):
+                parts = expr.split('-')
+                if len(parts) == 2:
+                    left = float(parts[0].strip())
+                    right = float(parts[1].strip())
+                    return left - right
+            
+            elif '*' in expr:
+                parts = expr.split('*')
+                if len(parts) == 2:
+                    left = float(parts[0].strip())
+                    right = float(parts[1].strip())
+                    return left * right
+            
+            elif '/' in expr:
+                parts = expr.split('/')
+                if len(parts) == 2:
+                    left = float(parts[0].strip())
+                    right = float(parts[1].strip())
+                    if right == 0:
+                        return None  # Division by zero
+                    return left / right
+            
+            elif '^' in expr:
+                parts = expr.split('^')
+                if len(parts) == 2:
+                    base = float(parts[0].strip())
+                    exp = float(parts[1].strip())
+                    if abs(exp) > self.max_power:
+                        return None  # Exponent too large
+                    return pow(base, exp)
+            
+            else:
+                # Single number or constant
+                return float(expr)
+            
+            return None
+        except:
+            return None
+    
+    def calculate_statistics(self, numbers: str) -> str:
+        """
+        Calculate basic statistics for a list of numbers.
+        
+        Args:
+            numbers: Comma-separated list of numbers
+            
+        Returns:
+            JSON string with statistical results
+        """
+        try:
+            # Parse numbers
+            num_list = [float(x.strip()) for x in numbers.split(',')]
+            
+            if not num_list:
+                return '{"error": "No numbers provided"}'
+            
+            n = len(num_list)
+            total = sum(num_list)
+            mean = total / n
+            
+            # Calculate variance and standard deviation
+            variance = sum((x - mean) ** 2 for x in num_list) / n
+            std_dev = math.sqrt(variance)
+            
+            # Find min, max, median
+            sorted_nums = sorted(num_list)
+            minimum = sorted_nums[0]
+            maximum = sorted_nums[-1]
+            
+            # Median calculation
+            if n % 2 == 0:
+                median = (sorted_nums[n//2 - 1] + sorted_nums[n//2]) / 2
+            else:
+                median = sorted_nums[n//2]
+            
+            return '{"success": true, "count": ' + str(n) + ', "sum": ' + str(total) + ', "mean": ' + str(mean) + ', "median": ' + str(median) + ', "min": ' + str(minimum) + ', "max": ' + str(maximum) + ', "variance": ' + str(variance) + ', "std_dev": ' + str(std_dev) + '}'
+            
+        except ValueError:
+            return '{"error": "Invalid number format in input", "input": "' + numbers + '"}'
+        except Exception as e:
+            return '{"error": "Statistics calculation failed", "message": "' + str(e) + '"}'
+    
+    def trigonometry(self, function: str, value: str, unit: str = "radians") -> str:
+        """
+        Calculate trigonometric functions.
+        
+        Args:
+            function: Trig function (sin, cos, tan, asin, acos, atan)
+            value: Input value
+            unit: Angle unit (radians or degrees)
+            
+        Returns:
+            JSON string with result
+        """
+        try:
+            num_value = float(value)
+            
+            # Convert degrees to radians if needed
+            if unit == "degrees":
+                if function in ["sin", "cos", "tan"]:
+                    num_value = math.radians(num_value)
+            
+            # Calculate function
+            if function == "sin":
+                result = math.sin(num_value)
+            elif function == "cos":
+                result = math.cos(num_value)
+            elif function == "tan":
+                result = math.tan(num_value)
+            elif function == "asin":
+                if abs(num_value) > 1:
+                    return '{"error": "asin input must be between -1 and 1", "value": ' + str(num_value) + '}'
+                result = math.asin(num_value)
+            elif function == "acos":
+                if abs(num_value) > 1:
+                    return '{"error": "acos input must be between -1 and 1", "value": ' + str(num_value) + '}'
+                result = math.acos(num_value)
+            elif function == "atan":
+                result = math.atan(num_value)
+            else:
+                return '{"error": "Unknown trigonometric function", "function": "' + function + '"}'
+            
+            # Convert result back to degrees if needed
+            if unit == "degrees" and function in ["asin", "acos", "atan"]:
+                result = math.degrees(result)
+            
+            return '{"success": true, "function": "' + function + '", "input": ' + str(float(value)) + ', "unit": "' + unit + '", "result": ' + str(result) + '}'
+            
+        except ValueError:
+            return '{"error": "Invalid numeric value", "value": "' + value + '"}'
+        except Exception as e:
+            return '{"error": "Trigonometry calculation failed", "message": "' + str(e) + '"}'
+    
+    def number_theory(self, operation: str, number: str) -> str:
+        """
+        Number theory operations.
+        
+        Args:
+            operation: Operation type (factorial, fibonacci, prime_check, gcd)
+            number: Input number(s)
+            
+        Returns:
+            JSON string with result
+        """
+        try:
+            if operation == "factorial":
+                n = int(float(number))
+                if n < 0:
+                    return '{"error": "Factorial undefined for negative numbers", "number": ' + str(n) + '}'
+                if n > self.max_factorial:
+                    return '{"error": "Number too large for factorial", "number": ' + str(n) + ', "max": ' + str(self.max_factorial) + '}'
+                
+                result = 1
+                for i in range(1, n + 1):
+                    result *= i
+                
+                return '{"success": true, "operation": "factorial", "input": ' + str(n) + ', "result": ' + str(result) + '}'
+            
+            elif operation == "fibonacci":
+                n = int(float(number))
+                if n < 0:
+                    return '{"error": "Fibonacci sequence undefined for negative numbers", "number": ' + str(n) + '}'
+                if n > 100:  # Prevent very large computations
+                    return '{"error": "Number too large for Fibonacci", "number": ' + str(n) + ', "max": 100}'
+                
+                if n <= 1:
+                    result = n
+                else:
+                    a, b = 0, 1
+                    for _ in range(2, n + 1):
+                        a, b = b, a + b
+                    result = b
+                
+                return '{"success": true, "operation": "fibonacci", "input": ' + str(n) + ', "result": ' + str(result) + '}'
+            
+            elif operation == "prime_check":
+                n = int(float(number))
+                if n < 2:
+                    is_prime = False
+                elif n == 2:
+                    is_prime = True
+                elif n % 2 == 0:
+                    is_prime = False
+                else:
+                    is_prime = True
+                    for i in range(3, int(math.sqrt(n)) + 1, 2):
+                        if n % i == 0:
+                            is_prime = False
+                            break
+                
+                return '{"success": true, "operation": "prime_check", "input": ' + str(n) + ', "is_prime": ' + str(is_prime).lower() + '}'
+            
+            else:
+                return '{"error": "Unknown number theory operation", "operation": "' + operation + '"}'
+            
+        except ValueError:
+            return '{"error": "Invalid numeric input", "number": "' + number + '"}'
+        except Exception as e:
+            return '{"error": "Number theory operation failed", "message": "' + str(e) + '"}'
+
+def create_math_tool() -> MathTool:
+    """Create a configured math tool instance."""
+    return MathTool()
+
+# Tool registration functions for MCP integration
+def get_math_tools_schema() -> str:
+    """Get JSON schema for math tools."""
+    return '''[
+        {
+            "name": "evaluate_expression",
+            "description": "Evaluate a mathematical expression",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "Mathematical expression to evaluate (e.g., '2+3*4', 'pi*2', 'e^2')"
+                    }
+                },
+                "required": ["expression"]
+            }
+        },
+        {
+            "name": "calculate_statistics",
+            "description": "Calculate statistics for a list of numbers",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "numbers": {
+                        "type": "string",
+                        "description": "Comma-separated list of numbers (e.g., '1,2,3,4,5')"
+                    }
+                },
+                "required": ["numbers"]
+            }
+        },
+        {
+            "name": "trigonometry",
+            "description": "Calculate trigonometric functions",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "function": {
+                        "type": "string",
+                        "description": "Trigonometric function",
+                        "enum": ["sin", "cos", "tan", "asin", "acos", "atan"]
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Input value for the function"
+                    },
+                    "unit": {
+                        "type": "string",
+                        "description": "Angle unit",
+                        "enum": ["radians", "degrees"],
+                        "default": "radians"
+                    }
+                },
+                "required": ["function", "value"]
+            }
+        },
+        {
+            "name": "number_theory",
+            "description": "Number theory operations",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Number theory operation",
+                        "enum": ["factorial", "fibonacci", "prime_check"]
+                    },
+                    "number": {
+                        "type": "string",
+                        "description": "Input number for the operation"
+                    }
+                },
+                "required": ["operation", "number"]
+            }
+        }
+    ]'''

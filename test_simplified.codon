@@ -1,0 +1,123 @@
+# Test Simplified Production Server
+
+from conduit.mcp.simplified_server import SimplifiedMCPServer
+from conduit.mcp.jsonrpc import JSONRPCRequest
+
+def test_simplified_server():
+    """Test the simplified production server."""
+    print("Testing Simplified Production Server...")
+    
+    server = SimplifiedMCPServer()
+    
+    # Test initialize
+    print("\n1. Testing initialize...")
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    response = server.handle_request(init_request)
+    
+    if '"protocolVersion": "2024-11-05"' in response.result:
+        print("✅ Initialize works correctly")
+    else:
+        print("❌ Initialize failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test tools/list
+    print("\n2. Testing tools list...")
+    list_request = JSONRPCRequest("tools/list", "2", '{}')
+    response = server.handle_request(list_request)
+    
+    if '"tools"' in response.result and '"get_current_weather"' in response.result:
+        print("✅ Tools list works correctly")
+    else:
+        print("❌ Tools list failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test weather tool
+    print("\n3. Testing weather tool...")
+    weather_request = JSONRPCRequest("tools/call", "3", '{"name":"get_current_weather","arguments":{"city":"San Francisco","units":"metric"}}')
+    response = server.handle_request(weather_request)
+    
+    if 'San Francisco' in response.result and '"success": true' in response.result:
+        print("✅ Weather tool works correctly")
+    else:
+        print("❌ Weather tool failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test math tool
+    print("\n4. Testing math tool...")
+    math_request = JSONRPCRequest("tools/call", "4", '{"name":"evaluate_expression","arguments":{"expression":"25+17"}}')
+    response = server.handle_request(math_request)
+    
+    if '"result": 42' in response.result:
+        print("✅ Math tool works correctly")
+    else:
+        print("❌ Math tool failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test statistics
+    print("\n5. Testing statistics...")
+    stats_request = JSONRPCRequest("tools/call", "5", '{"name":"calculate_statistics","arguments":{"numbers":"1,2,3,4,5"}}')
+    response = server.handle_request(stats_request)
+    
+    if '"mean": 3.00' in response.result:
+        print("✅ Statistics tool works correctly")
+    else:
+        print("❌ Statistics tool failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test directory listing
+    print("\n6. Testing directory listing...")
+    dir_request = JSONRPCRequest("tools/call", "6", '{"name":"list_directory","arguments":{"path":"."}}')
+    response = server.handle_request(dir_request)
+    
+    if '"success": true' in response.result:
+        print("✅ Directory listing works correctly")
+    else:
+        print("❌ Directory listing failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test legacy tools
+    print("\n7. Testing legacy tools...")
+    legacy_weather = JSONRPCRequest("tools/call", "7", '{"name":"weather","arguments":{"city":"Boston"}}')
+    response = server.handle_request(legacy_weather)
+    
+    if 'Weather in Boston' in response.result:
+        print("✅ Legacy weather tool works correctly")
+    else:
+        print("❌ Legacy weather tool failed")
+        return False
+    
+    legacy_calc = JSONRPCRequest("tools/call", "8", '{"name":"calculate","arguments":{"expression":"6*7"}}')
+    response = server.handle_request(legacy_calc)
+    
+    if 'Result: 42' in response.result:
+        print("✅ Legacy calculate tool works correctly")
+    else:
+        print("❌ Legacy calculate tool failed")
+        return False
+    
+    return True
+
+def main():
+    print("🧪 Simplified Production Server Test")
+    print("=" * 50)
+    
+    if test_simplified_server():
+        print("\n" + "=" * 50)
+        print("🎉 All Simplified Production Server tests passed! ✅")
+        print("\n🛠️  Available Tools:")
+        print("   🌤️  Weather: get_current_weather")
+        print("   🔢 Math: evaluate_expression, calculate_statistics")
+        print("   📁 File: list_directory")
+        print("   🔧 Legacy: weather, calculate")
+        print("\n🚀 Simplified MCP server is ready for use!")
+    else:
+        print("❌ Some tests failed")
+
+if __name__ == "__main__":
+    main()

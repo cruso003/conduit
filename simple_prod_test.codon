@@ -1,0 +1,55 @@
+# Simplified Production Tools Test
+
+from conduit.mcp.production_server import ProductionMCPServer
+from conduit.mcp.jsonrpc import JSONRPCRequest
+
+def test_basic_functionality():
+    """Test basic server functionality."""
+    print("Testing basic server functionality...")
+    
+    server = ProductionMCPServer()
+    
+    # Test initialize
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    response = server.handle_request(init_request)
+    
+    if '"protocolVersion": "2024-11-05"' in response.result:
+        print("✅ Initialize works correctly")
+    else:
+        print("❌ Initialize failed")
+        return False
+    
+    # Test tools/list
+    list_request = JSONRPCRequest("tools/list", "2", '{}')
+    response = server.handle_request(list_request)
+    
+    if '"tools"' in response.result:
+        print("✅ Tools list works correctly")
+    else:
+        print("❌ Tools list failed")
+        return False
+    
+    # Test a simple tool call
+    weather_request = JSONRPCRequest("tools/call", "3", '{"name":"weather","arguments":{"city":"Boston"}}')
+    response = server.handle_request(weather_request)
+    
+    if 'Weather in Boston' in response.result:
+        print("✅ Tool call works correctly")
+    else:
+        print("❌ Tool call failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    return True
+
+def main():
+    print("🧪 Simple Production Tools Test")
+    print("=" * 40)
+    
+    if test_basic_functionality():
+        print("🎉 Basic functionality test passed! ✅")
+    else:
+        print("❌ Basic functionality test failed")
+
+if __name__ == "__main__":
+    main()

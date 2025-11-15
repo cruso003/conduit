@@ -1,0 +1,204 @@
+# Working MCP Protocol Test Suite
+# Simple test without complex types
+
+from conduit.mcp.protocol_working import MCPServer, create_mcp_server, create_initialize_response, create_tool_result
+from conduit.mcp.jsonrpc import JSONRPCRequest
+
+
+def test_mcp_server_creation():
+    """Test MCP server creation"""
+    print("Testing MCP server creation...")
+    
+    server = create_mcp_server()
+    assert server.server_name == "Conduit MCP Server"
+    assert server.initialized == False
+    
+    print("✅ MCP server creation tests passed")
+
+
+def test_initialize():
+    """Test initialize method"""
+    print("Testing initialize method...")
+    
+    server = create_mcp_server()
+    
+    # Test initialization
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"TestClient","version":"1.0.0"}}')
+    response = server.handle_request(init_request)
+    
+    assert server.initialized == True
+    assert '"protocolVersion"' in response.result
+    assert '"capabilities"' in response.result
+    assert '"serverInfo"' in response.result
+    
+    # Test double initialization (should fail)
+    response2 = server.handle_request(init_request)
+    assert '"error"' in response2.result
+    
+    print("✅ Initialize tests passed")
+
+
+def test_tools_list_empty():
+    """Test tools/list with no tools"""
+    print("Testing tools/list with no tools...")
+    
+    server = create_mcp_server()
+    
+    # Initialize first
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"TestClient","version":"1.0.0"}}')
+    server.handle_request(init_request)
+    
+    # Test tools/list
+    tools_request = JSONRPCRequest("tools/list", "2", "{}")
+    response = server.handle_request(tools_request)
+    
+    assert '"tools":[]' in response.result
+    
+    print("✅ Empty tools list tests passed")
+
+
+def test_tools_list_with_tools():
+    """Test tools/list with tools added"""
+    print("Testing tools/list with tools...")
+    
+    server = create_mcp_server()
+    
+    # Initialize
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"TestClient","version":"1.0.0"}}')
+    server.handle_request(init_request)
+    
+    # Add tools
+    server.add_weather_tool()
+    server.add_calculator_tool()
+    
+    # Test tools/list
+    tools_request = JSONRPCRequest("tools/list", "2", "{}")
+    response = server.handle_request(tools_request)
+    
+    assert '"tools":[' in response.result
+    assert '"name":"weather"' in response.result
+    assert '"name":"calculate"' in response.result
+    assert '"inputSchema"' in response.result
+    
+    print("✅ Tools list with tools tests passed")
+
+
+def test_weather_tool_call():
+    """Test weather tool execution"""
+    print("Testing weather tool call...")
+    
+    server = create_mcp_server()
+    
+    # Initialize and add weather tool
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"TestClient","version":"1.0.0"}}')
+    server.handle_request(init_request)
+    server.add_weather_tool()
+    
+    # Test weather tool call
+    call_request = JSONRPCRequest("tools/call", "3", '{"name":"weather","arguments":{"city":"San Francisco"}}')
+    response = server.handle_request(call_request)
+    
+    assert '"content":[' in response.result
+    assert '"type":"text"' in response.result
+    assert "San Francisco" in response.result
+    assert "Weather in San Francisco" in response.result
+    
+    print("✅ Weather tool call tests passed")
+
+
+def test_calculator_tool_call():
+    """Test calculator tool execution"""
+    print("Testing calculator tool call...")
+    
+    server = create_mcp_server()
+    
+    # Initialize and add calculator tool
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"TestClient","version":"1.0.0"}}')
+    server.handle_request(init_request)
+    server.add_calculator_tool()
+    
+    # Test addition
+    call_request = JSONRPCRequest("tools/call", "4", '{"name":"calculate","arguments":{"expression":"2 + 3"}}')
+    response = server.handle_request(call_request)
+    
+    assert '"content":[' in response.result
+    assert "Result: 5" in response.result
+    
+    # Test multiplication
+    call_request2 = JSONRPCRequest("tools/call", "5", '{"name":"calculate","arguments":{"expression":"4 * 5"}}')
+    response2 = server.handle_request(call_request2)
+    
+    assert "Result: 20" in response2.result
+    
+    print("✅ Calculator tool call tests passed")
+
+
+def test_error_cases():
+    """Test error handling"""
+    print("Testing error cases...")
+    
+    server = create_mcp_server()
+    
+    # Initialize
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"TestClient","version":"1.0.0"}}')
+    server.handle_request(init_request)
+    
+    # Test unknown method
+    unknown_request = JSONRPCRequest("unknown/method", "6", "{}")
+    response = server.handle_request(unknown_request)
+    assert '"error"' in response.result
+    
+    # Test unknown tool
+    server.add_weather_tool()
+    unknown_tool_request = JSONRPCRequest("tools/call", "7", '{"name":"nonexistent","arguments":{}}')
+    response2 = server.handle_request(unknown_tool_request)
+    assert '"error"' in response2.result
+    
+    # Test missing parameters
+    no_name_request = JSONRPCRequest("tools/call", "8", '{"arguments":{}}')
+    response3 = server.handle_request(no_name_request)
+    assert '"error"' in response3.result
+    
+    print("✅ Error handling tests passed")
+
+
+def test_utility_functions():
+    """Test utility functions"""
+    print("Testing utility functions...")
+    
+    # Test create_initialize_response
+    response = create_initialize_response("Test Server", "2.0.0")
+    assert '"protocolVersion"' in response
+    assert '"Test Server"' in response
+    assert '"2.0.0"' in response
+    
+    # Test create_tool_result
+    result = create_tool_result("Test result")
+    assert '"content":[' in result
+    assert '"type":"text"' in result
+    assert '"text":"Test result"' in result
+    
+    print("✅ Utility function tests passed")
+
+
+def run_all_tests():
+    """Run all working MCP tests"""
+    print("🧪 Running Working MCP Protocol Test Suite...")
+    print("=" * 50)
+    
+    test_mcp_server_creation()
+    test_initialize()
+    test_tools_list_empty()
+    test_tools_list_with_tools()
+    test_weather_tool_call()
+    test_calculator_tool_call()
+    test_error_cases()
+    test_utility_functions()
+    
+    print("=" * 50)
+    print("🎉 All Working MCP Protocol tests passed!")
+    print("✅ MCP implementation is functional and ready!")
+
+
+if __name__ == "__main__":
+    run_all_tests()

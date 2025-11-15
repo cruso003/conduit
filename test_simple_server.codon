@@ -1,0 +1,28 @@
+# Test the simple MCP server with some example messages
+
+import sys
+
+# Test messages to send to the server
+test_messages = [
+    '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"Test Client","version":"1.0.0"}}}',
+    '{"jsonrpc":"2.0","method":"tools/list","id":"2","params":{}}',
+    '{"jsonrpc":"2.0","method":"tools/call","id":"3","params":{"name":"weather","arguments":{"city":"New York"}}}',
+    '{"jsonrpc":"2.0","method":"tools/call","id":"4","params":{"name":"calculate","arguments":{"expression":"25*4"}}}',
+]
+
+print("=== Testing Simple MCP Server ===")
+print("\nSending test messages to server...")
+print("(In real usage, these would come from an MCP client)\n")
+
+for i, msg in enumerate(test_messages):
+    print(f"\n[{i+1}] Request:")
+    print(f"  {msg[:80]}{'...' if len(msg) > 80 else ''}")
+
+print("\n\n" + "="*50)
+print("To test interactively, run:")
+print("  codon run examples/simple_mcp_server.codon")
+print("\nThen send messages via stdin (paste and press Enter):")
+for msg in test_messages[:2]:
+    print(f"  {msg}")
+print("\nPress Ctrl+D (EOF) to exit")
+print("="*50)

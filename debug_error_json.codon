@@ -1,0 +1,11 @@
+from conduit.mcp.jsonrpc import JSONRPCError, ERROR_METHOD_NOT_FOUND
+
+def debug_error_json():
+    tool_not_found_error = JSONRPCError("3", ERROR_METHOD_NOT_FOUND, "Tool 'nonexistent' not found")
+    json_str = tool_not_found_error.to_json()
+    print(f"Generated JSON: {json_str}")
+    print(f"Contains 'nonexistent': {\"'nonexistent'\" in json_str}")
+    print(f"Contains 'nonexistent' (no quotes): {'nonexistent' in json_str}")
+
+if __name__ == "__main__":
+    debug_error_json()

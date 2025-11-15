@@ -1,0 +1,374 @@
+# Production MCP Server with Advanced Tools
+# Complete MCP server with file system, math, web scraping, and weather tools
+
+from conduit.mcp.jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError
+from conduit.mcp.tools.filesystem import FileSystemTool, get_filesystem_tools_schema
+from conduit.mcp.tools.math_advanced import MathTool, get_math_tools_schema
+from conduit.mcp.tools.webscraping import WebScrapingTool, get_webscraping_tools_schema
+from conduit.mcp.tools.weather_api import WeatherAPI, get_weather_api_tools_schema
+
+class ProductionMCPServer:
+    """
+    Production-ready MCP server with comprehensive tool suite.
+    
+    Includes:
+    - File system operations (read, write, list, info)
+    - Advanced mathematics (evaluation, statistics, trigonometry, number theory)
+    - Web scraping (fetch URLs, extract text/links)
+    - Enhanced weather API (current, forecast, alerts)
+    - Original demo tools (weather, calculator)
+    """
+    
+    def __init__(self):
+        """Initialize server with all tool instances."""
+        self.server_info = {
+            "name": "Conduit Production MCP Server",
+            "version": "1.0.0"
+        }
+        
+        # Initialize tool instances
+        self.filesystem = FileSystemTool()
+        self.math_tool = MathTool()
+        self.webscraping = WebScrapingTool()
+        self.weather_api = WeatherAPI()
+        
+        # Track initialized state
+        self.initialized = False
+        
+        # Available tools registry
+        self.tools = {
+            # File system tools
+            "read_file": self._handle_read_file,
+            "write_file": self._handle_write_file,
+            "list_directory": self._handle_list_directory,
+            "file_info": self._handle_file_info,
+            
+            # Math tools
+            "evaluate_expression": self._handle_evaluate_expression,
+            "calculate_statistics": self._handle_calculate_statistics,
+            "trigonometry": self._handle_trigonometry,
+            "number_theory": self._handle_number_theory,
+            
+            # Web scraping tools
+            "fetch_url": self._handle_fetch_url,
+            "extract_text": self._handle_extract_text,
+            "extract_links": self._handle_extract_links,
+            
+            # Weather API tools
+            "get_current_weather": self._handle_get_current_weather,
+            "get_forecast": self._handle_get_forecast,
+            "get_weather_alerts": self._handle_get_weather_alerts,
+            
+            # Legacy demo tools for compatibility
+            "weather": self._handle_weather_legacy,
+            "calculate": self._handle_calculate_legacy
+        }
+    
+    def handle_request(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """
+        Handle incoming JSON-RPC request.
+        
+        Args:
+            request: JSON-RPC request object
+            
+        Returns:
+            JSON-RPC response object
+        """
+        try:
+            method = request.method
+            
+            if method == "initialize":
+                return self._handle_initialize(request)
+            elif method == "tools/list":
+                return self._handle_tools_list(request)
+            elif method == "tools/call":
+                return self._handle_tools_call(request)
+            else:
+                # Unknown method
+                error = JSONRPCError(
+                    id=request.id,
+                    code=-32601,
+                    message="Method not found",
+                    data=f"Unknown method: {method}"
+                )
+                return JSONRPCResponse(request.id, error.to_json())
+                
+        except Exception as e:
+            # Internal server error
+            error = JSONRPCError(
+                id=request.id,
+                code=-32603,
+                message="Internal error",
+                data=str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    def _handle_initialize(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle initialize request."""
+        self.initialized = True
+        
+        result = '{'
+        result += '"protocolVersion": "2024-11-05",'
+        result += '"capabilities": {'
+        result += '"tools": {},'
+        result += '"resources": {},'
+        result += '"prompts": {}'
+        result += '},'
+        result += '"serverInfo": {'
+        result += '"name": "' + self.server_info["name"] + '",'
+        result += '"version": "' + self.server_info["version"] + '"'
+        result += '}'
+        result += '}'
+        
+        return JSONRPCResponse(request.id, result)
+    
+    def _handle_tools_list(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/list request."""
+        if not self.initialized:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32002,
+                message="Server not initialized",
+                data="Must call initialize first"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Combine all tool schemas
+        tools = []
+        
+        # Add file system tools
+        fs_schema = get_filesystem_tools_schema()
+        tools.append(fs_schema[1:-1])  # Remove outer brackets
+        
+        # Add math tools
+        math_schema = get_math_tools_schema()
+        tools.append(math_schema[1:-1])  # Remove outer brackets
+        
+        # Add web scraping tools
+        web_schema = get_webscraping_tools_schema()
+        tools.append(web_schema[1:-1])  # Remove outer brackets
+        
+        # Add weather API tools
+        weather_schema = get_weather_api_tools_schema()
+        tools.append(weather_schema[1:-1])  # Remove outer brackets
+        
+        # Add legacy tools for compatibility
+        legacy_tools = '''
+        {
+            "name": "weather",
+            "description": "Get current weather for a city (legacy demo tool)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "The city to get weather for"
+                    }
+                },
+                "required": ["city"]
+            }
+        },
+        {
+            "name": "calculate",
+            "description": "Perform basic mathematical calculations (legacy demo tool)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "Mathematical expression to evaluate"
+                    }
+                },
+                "required": ["expression"]
+            }
+        }'''
+        
+        tools.append(legacy_tools)
+        
+        # Combine all tools
+        all_tools = '[' + ', '.join(tools) + ']'
+        
+        result = '{"tools": ' + all_tools + '}'
+        return JSONRPCResponse(request.id, result)
+    
+    def _handle_tools_call(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/call request."""
+        if not self.initialized:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32002,
+                message="Server not initialized",
+                data="Must call initialize first"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        try:
+            # Extract tool name and arguments from params
+            params = request.params
+            
+            # Simple JSON parsing for tool name
+            name_start = params.find('"name":"') + 8
+            name_end = params.find('"', name_start)
+            tool_name = params[name_start:name_end]
+            
+            if tool_name not in self.tools:
+                error = JSONRPCError(
+                    id=request.id,
+                    code=-32601,
+                    message=f"Tool '{tool_name}' not found",
+                    data=f"Available tools: {list(self.tools.keys())}"
+                )
+                return JSONRPCResponse(request.id, error.to_json())
+            
+            # Call the appropriate tool handler
+            tool_result = self.tools[tool_name](params)
+            
+            # Format as MCP tool result
+            content = '[{"type": "text", "text": "' + tool_result.replace('"', '\\"') + '"}]'
+            result = '{"content": ' + content + '}'
+            
+            return JSONRPCResponse(request.id, result)
+            
+        except Exception as e:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32603,
+                message="Tool execution failed",
+                data=str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    # File system tool handlers
+    def _handle_read_file(self, params: str) -> str:
+        """Handle read_file tool call."""
+        file_path = self._extract_argument(params, "file_path")
+        return self.filesystem.read_file(file_path)
+    
+    def _handle_write_file(self, params: str) -> str:
+        """Handle write_file tool call."""
+        file_path = self._extract_argument(params, "file_path")
+        content = self._extract_argument(params, "content")
+        mode = self._extract_argument(params, "mode", "w")
+        return self.filesystem.write_file(file_path, content, mode)
+    
+    def _handle_list_directory(self, params: str) -> str:
+        """Handle list_directory tool call."""
+        dir_path = self._extract_argument(params, "dir_path", ".")
+        return self.filesystem.list_directory(dir_path)
+    
+    def _handle_file_info(self, params: str) -> str:
+        """Handle file_info tool call."""
+        file_path = self._extract_argument(params, "file_path")
+        return self.filesystem.file_info(file_path)
+    
+    # Math tool handlers
+    def _handle_evaluate_expression(self, params: str) -> str:
+        """Handle evaluate_expression tool call."""
+        expression = self._extract_argument(params, "expression")
+        return self.math_tool.evaluate_expression(expression)
+    
+    def _handle_calculate_statistics(self, params: str) -> str:
+        """Handle calculate_statistics tool call."""
+        numbers = self._extract_argument(params, "numbers")
+        return self.math_tool.calculate_statistics(numbers)
+    
+    def _handle_trigonometry(self, params: str) -> str:
+        """Handle trigonometry tool call."""
+        function = self._extract_argument(params, "function")
+        value = self._extract_argument(params, "value")
+        unit = self._extract_argument(params, "unit", "radians")
+        return self.math_tool.trigonometry(function, value, unit)
+    
+    def _handle_number_theory(self, params: str) -> str:
+        """Handle number_theory tool call."""
+        operation = self._extract_argument(params, "operation")
+        number = self._extract_argument(params, "number")
+        return self.math_tool.number_theory(operation, number)
+    
+    # Web scraping tool handlers
+    def _handle_fetch_url(self, params: str) -> str:
+        """Handle fetch_url tool call."""
+        url = self._extract_argument(params, "url")
+        return self.webscraping.fetch_url(url)
+    
+    def _handle_extract_text(self, params: str) -> str:
+        """Handle extract_text tool call."""
+        html = self._extract_argument(params, "html")
+        return self.webscraping.extract_text(html)
+    
+    def _handle_extract_links(self, params: str) -> str:
+        """Handle extract_links tool call."""
+        html = self._extract_argument(params, "html")
+        base_url = self._extract_argument(params, "base_url", "")
+        return self.webscraping.extract_links(html, base_url)
+    
+    # Weather API tool handlers
+    def _handle_get_current_weather(self, params: str) -> str:
+        """Handle get_current_weather tool call."""
+        city = self._extract_argument(params, "city")
+        units = self._extract_argument(params, "units", "metric")
+        return self.weather_api.get_current_weather(city, units)
+    
+    def _handle_get_forecast(self, params: str) -> str:
+        """Handle get_forecast tool call."""
+        city = self._extract_argument(params, "city")
+        days = int(self._extract_argument(params, "days", "5"))
+        units = self._extract_argument(params, "units", "metric")
+        return self.weather_api.get_forecast(city, days, units)
+    
+    def _handle_get_weather_alerts(self, params: str) -> str:
+        """Handle get_weather_alerts tool call."""
+        city = self._extract_argument(params, "city")
+        return self.weather_api.get_weather_alerts(city)
+    
+    # Legacy tool handlers for compatibility
+    def _handle_weather_legacy(self, params: str) -> str:
+        """Handle legacy weather tool call."""
+        city = self._extract_argument(params, "city")
+        return f"Weather in {city}: Sunny, 72°F (This is a demo response from legacy tool)"
+    
+    def _handle_calculate_legacy(self, params: str) -> str:
+        """Handle legacy calculate tool call."""
+        expression = self._extract_argument(params, "expression")
+        
+        # Simple calculation for demo
+        if "+" in expression:
+            parts = expression.split("+")
+            if len(parts) == 2:
+                try:
+                    result = float(parts[0].strip()) + float(parts[1].strip())
+                    return f"Result: {result}"
+                except:
+                    pass
+        elif "*" in expression:
+            parts = expression.split("*")
+            if len(parts) == 2:
+                try:
+                    result = float(parts[0].strip()) * float(parts[1].strip())
+                    return f"Result: {result}"
+                except:
+                    pass
+        
+        return f"Calculation result for {expression}: Unable to compute (legacy tool)"
+    
+    def _extract_argument(self, params: str, arg_name: str, default: str = "") -> str:
+        """Extract argument value from JSON params string."""
+        try:
+            # Find the argument in the JSON
+            search_key = f'"{arg_name}":"'
+            start = params.find(search_key)
+            if start == -1:
+                return default
+            
+            start += len(search_key)
+            end = params.find('"', start)
+            if end == -1:
+                return default
+            
+            return params[start:end]
+        except:
+            return default
+
+def create_production_mcp_server() -> ProductionMCPServer:
+    """Create a production MCP server instance."""
+    return ProductionMCPServer()

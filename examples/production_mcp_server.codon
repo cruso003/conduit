@@ -1,0 +1,247 @@
+#!/usr/bin/env codon
+# Production MCP Server Example
+# Full-featured MCP server with advanced tools for real-world usage
+
+import sys
+from conduit.mcp.jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError, parse_jsonrpc_message
+from conduit.mcp.production_server import ProductionMCPServer
+
+class ProductionMCPStdioTransport:
+    """
+    Production MCP stdio transport with advanced tools.
+    
+    Includes comprehensive tool suite:
+    - File system operations
+    - Advanced mathematics
+    - Web scraping
+    - Enhanced weather API
+    """
+    
+    def __init__(self):
+        self.server = ProductionMCPServer()
+        self.running = False
+        
+    def start_server(self):
+        """Start the production MCP server."""
+        self.running = True
+        
+        # Write server startup info to stderr
+        self._log("🚀 Conduit Production MCP Server starting...")
+        self._log("📊 Available tool categories:")
+        self._log("   • File System: read_file, write_file, list_directory, file_info")
+        self._log("   • Mathematics: evaluate_expression, calculate_statistics, trigonometry, number_theory")
+        self._log("   • Web Scraping: fetch_url, extract_text, extract_links")
+        self._log("   • Weather API: get_current_weather, get_forecast, get_weather_alerts")
+        self._log("   • Legacy Tools: weather, calculate")
+        self._log("✅ Server ready for connections...")
+        
+        # Main message processing loop
+        while self.running:
+            try:
+                # Read line-delimited JSON from stdin
+                line = input()
+                
+                if not line.strip():
+                    continue
+                    
+                # Log incoming message for debugging
+                self._log(f"📥 Received: {line[:100]}{'...' if len(line) > 100 else ''}")
+                
+                # Process the message
+                response = self._process_message(line)
+                
+                if response:
+                    # Write response to stdout
+                    print(response)
+                    sys.stdout.flush()
+                    
+                    # Log outgoing response
+                    self._log(f"📤 Sent: {response[:100]}{'...' if len(response) > 100 else ''}")
+                    
+            except EOFError:
+                # stdin closed, exit gracefully
+                self._log("📪 stdin closed, shutting down server")
+                break
+            except Exception as e:
+                # Handle unexpected errors
+                error_msg = str(e)
+                if "interrupt" in error_msg.lower() or "ctrl" in error_msg.lower():
+                    self._log("⏹️  Keyboard interrupt, shutting down server")
+                    break
+                    
+                self._log(f"❌ ERROR: {error_msg}")
+                
+                # Try to send error response
+                error_response = JSONRPCError(
+                    id="unknown",
+                    code=-32603,
+                    message="Internal error",
+                    data=error_msg
+                ).to_json()
+                
+                print(error_response)
+                sys.stdout.flush()
+        
+        self._log("🛑 Production MCP server stopped")
+    
+    def stop_server(self):
+        """Stop the MCP server gracefully."""
+        self.running = False
+        self._log("🔄 Server stop requested")
+    
+    def _process_message(self, message_line: str) -> str:
+        """Process a single JSON-RPC message and return response."""
+        try:
+            # Parse the JSON-RPC message type first
+            message_type = parse_jsonrpc_message(message_line)
+            
+            if message_type == "request":
+                # Parse as request and handle
+                request = self._parse_request(message_line)
+                if request is not None:
+                    response = self.server.handle_request(request)
+                    return response.to_json()
+                else:
+                    # Failed to parse request
+                    error = JSONRPCError(
+                        id="unknown",
+                        code=-32600,
+                        message="Invalid request",
+                        data="Failed to parse request parameters"
+                    )
+                    return error.to_json()
+                    
+            elif message_type == "notification":
+                # Handle notification (no response needed)
+                self._handle_notification_message(message_line)
+                return ""  # No response for notifications
+                
+            else:
+                # Invalid message type
+                error = JSONRPCError(
+                    id="unknown",
+                    code=-32600,
+                    message="Invalid request",
+                    data=f"Message type: {message_type}"
+                )
+                return error.to_json()
+                
+        except Exception as e:
+            # Handle parsing or processing errors
+            error = JSONRPCError(
+                id="unknown",
+                code=-32700,
+                message="Parse error",
+                data=str(e)
+            )
+            return error.to_json()
+    
+    def _parse_request(self, message: str):
+        """Parse JSON message into JSONRPCRequest."""
+        try:
+            # Extract method field
+            method_start = message.find('"method":"') + 10
+            method_end = message.find('"', method_start)
+            method = message[method_start:method_end]
+            
+            # Extract id field
+            id_start = message.find('"id":"') + 6
+            id_end = message.find('"', id_start)
+            request_id = message[id_start:id_end]
+            
+            # Extract params field (default to empty object if not found)
+            params_start = message.find('"params":')
+            if params_start != -1:
+                params_start += 9
+                # Find the matching closing brace for params object
+                brace_count = 0
+                in_string = False
+                params_end = params_start
+                for i in range(params_start, len(message)):
+                    char = message[i]
+                    if char == '"' and (i == 0 or message[i-1] != '\\'):
+                        in_string = not in_string
+                    elif not in_string:
+                        if char == '{':
+                            brace_count += 1
+                        elif char == '}':
+                            if brace_count == 0:
+                                params_end = i + 1
+                                break
+                            brace_count -= 1
+                        elif char == ',' and brace_count == 0:
+                            params_end = i
+                            break
+                
+                params = message[params_start:params_end].strip()
+                if params.endswith(','):
+                    params = params[:-1]
+            else:
+                params = "{}"
+            
+            return JSONRPCRequest(method, request_id, params)
+            
+        except Exception as e:
+            # Return None to indicate parsing failure
+            return None
+    
+    def _handle_notification_message(self, message: str):
+        """Handle JSON-RPC notification message."""
+        try:
+            # Extract method from notification
+            method_start = message.find('"method":"') + 10
+            method_end = message.find('"', method_start)
+            method = message[method_start:method_end]
+            
+            if method == "initialized":
+                # Client has completed initialization
+                self._log("✅ Client initialization completed")
+            elif method == "exit":
+                # Client requesting graceful shutdown
+                self._log("👋 Client requested exit")
+                self.stop_server()
+            else:
+                # Unknown notification
+                self._log(f"❓ Unknown notification: {method}")
+                
+        except Exception as e:
+            self._log(f"❌ Error handling notification: {e}")
+    
+    def _log(self, message: str):
+        """Log message to stderr for debugging."""
+        print(f"[MCP] {message}", file=sys.stderr)
+        sys.stderr.flush()
+
+def main():
+    """
+    Main entry point for the production MCP server.
+    
+    Usage:
+        codon run examples/production_mcp_server.codon
+        
+    Example client interaction:
+        # Initialize
+        {"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05"}}
+        
+        # List available tools
+        {"jsonrpc":"2.0","method":"tools/list","id":"2","params":{}}
+        
+        # Use file system tool
+        {"jsonrpc":"2.0","method":"tools/call","id":"3","params":{"name":"list_directory","arguments":{"dir_path":"."}}}
+        
+        # Use math tool
+        {"jsonrpc":"2.0","method":"tools/call","id":"4","params":{"name":"evaluate_expression","arguments":{"expression":"2*pi"}}}
+        
+        # Use weather tool
+        {"jsonrpc":"2.0","method":"tools/call","id":"5","params":{"name":"get_current_weather","arguments":{"city":"San Francisco","units":"imperial"}}}
+    """
+    try:
+        transport = ProductionMCPStdioTransport()
+        transport.start_server()
+    except Exception as e:
+        print(f"[MCP] Fatal error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+# Run server if this file is executed directly
+if __name__ == "__main__":
+    main()

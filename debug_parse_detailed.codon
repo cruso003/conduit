@@ -1,0 +1,27 @@
+from conduit.mcp.jsonrpc import parse_jsonrpc_message, extract_field
+
+def debug_parse_detailed():
+    message = '{"jsonrpc":"2.0","id":"1","params":{}}'
+    print(f"Message: {message}")
+    
+    # Check what parse_jsonrpc_message returns
+    msg_type = parse_jsonrpc_message(message)
+    print(f"Parsed type: {msg_type}")
+    
+    # Check field presence
+    has_id = '"id":' in message
+    has_method = '"method":' in message
+    has_result = '"result":' in message
+    has_error = '"error":' in message
+    
+    print(f"Has id: {has_id}")
+    print(f"Has method: {has_method}")
+    print(f"Has result: {has_result}")
+    print(f"Has error: {has_error}")
+    
+    # Extract method field
+    method = extract_field(message, "method")
+    print(f"Extracted method: '{method}'")
+
+if __name__ == "__main__":
+    debug_parse_detailed()

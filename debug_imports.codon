@@ -1,0 +1,23 @@
+# Simple test to debug import issues
+
+print("Testing basic imports...")
+
+try:
+    from conduit.mcp.jsonrpc import JSONRPCRequest
+    print("✅ JSONRPCRequest import successful")
+except Exception as e:
+    print(f"❌ JSONRPCRequest import failed: {e}")
+
+try:
+    from conduit.mcp.tools.filesystem import FileSystemTool
+    print("✅ FileSystemTool import successful")
+except Exception as e:
+    print(f"❌ FileSystemTool import failed: {e}")
+
+try:
+    from conduit.mcp.production_server import ProductionMCPServer
+    print("✅ ProductionMCPServer import successful")
+except Exception as e:
+    print(f"❌ ProductionMCPServer import failed: {e}")
+
+print("Import test complete")

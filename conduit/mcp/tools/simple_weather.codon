@@ -1,0 +1,81 @@
+# Simplified Weather API Tool for MCP
+# Simplified implementation to avoid Codon type inference issues
+
+class SimpleWeatherAPI:
+    """
+    Simplified weather tool that avoids complex dictionary types.
+    """
+    
+    def __init__(self):
+        """Initialize simple weather API."""
+        self.base_temp = 72.0
+        
+    def get_current_weather(self, city: str, units: str = "metric") -> str:
+        """Get simple weather for a city."""
+        try:
+            # Simple weather response based on city
+            city_lower = city.lower()
+            
+            if "san francisco" in city_lower:
+                temp = 72.0
+                condition = "Partly Cloudy"
+            elif "new york" in city_lower:
+                temp = 68.0
+                condition = "Overcast"
+            elif "london" in city_lower:
+                temp = 59.0
+                condition = "Light Rain"
+            elif "tokyo" in city_lower:
+                temp = 75.0
+                condition = "Sunny"
+            else:
+                temp = 70.0
+                condition = "Unknown"
+            
+            # Convert temperature
+            if units == "imperial":
+                temp = temp * 9/5 + 32
+                temp_unit = "°F"
+            elif units == "kelvin":
+                temp = temp + 273.15
+                temp_unit = "K"
+            else:
+                temp_unit = "°C"
+            
+            return '{"success": true, "city": "' + city + '", "temperature": ' + str(round(temp, 1)) + ', "unit": "' + temp_unit + '", "condition": "' + condition + '"}'
+            
+        except Exception as e:
+            return '{"error": "Weather fetch failed", "message": "' + str(e) + '"}'
+    
+    def get_forecast(self, city: str, days: int = 5, units: str = "metric") -> str:
+        """Get simple forecast."""
+        return '{"success": true, "city": "' + city + '", "days": ' + str(days) + ', "forecast": "Demo forecast data"}'
+    
+    def get_weather_alerts(self, city: str) -> str:
+        """Get simple alerts."""
+        return '{"success": true, "city": "' + city + '", "alerts": [], "count": 0}'
+
+def get_simple_weather_tools_schema() -> str:
+    """Get JSON schema for simple weather tools."""
+    return '''[
+        {
+            "name": "get_current_weather",
+            "description": "Get current weather conditions for a city",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "City name to get weather for"
+                    },
+                    "units": {
+                        "type": "string",
+                        "description": "Temperature units",
+                        "enum": ["metric", "imperial", "kelvin"],
+                        "default": "metric"
+                    }
+                },
+                "required": ["city"]
+            }
+        }
+    ]'''

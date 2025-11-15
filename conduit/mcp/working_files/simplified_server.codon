@@ -1,0 +1,339 @@
+# Simplified Production MCP Server
+# Focuses on working functionality while avoiding Codon type complexity
+
+from conduit.mcp.jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError
+from conduit.mcp.tools.simple_weather import SimpleWeatherAPI
+
+class SimplifiedMCPServer:
+    """
+    Simplified production MCP server with working tools.
+    
+    Includes:
+    - Enhanced weather tools
+    - Basic file operations
+    - Mathematical calculations
+    - Legacy compatibility tools
+    """
+    
+    def __init__(self):
+        """Initialize server with tool instances."""
+        self.server_info = {
+            "name": "Conduit Simplified MCP Server",
+            "version": "1.0.0"
+        }
+        
+        # Initialize tool instances
+        self.weather_api = SimpleWeatherAPI()
+        
+        # Track initialized state
+        self.initialized = False
+        
+        # Available tools registry
+        self.tools = {
+            # Weather tools
+            "get_current_weather": self._handle_get_current_weather,
+            
+            # Math tools
+            "evaluate_expression": self._handle_evaluate_expression,
+            "calculate_statistics": self._handle_calculate_statistics,
+            
+            # File operations
+            "list_directory": self._handle_list_directory,
+            
+            # Legacy demo tools for compatibility
+            "weather": self._handle_weather_legacy,
+            "calculate": self._handle_calculate_legacy
+        }
+    
+    def handle_request(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle incoming JSON-RPC request."""
+        try:
+            method = request.method
+            
+            if method == "initialize":
+                return self._handle_initialize(request)
+            elif method == "tools/list":
+                return self._handle_tools_list(request)
+            elif method == "tools/call":
+                return self._handle_tools_call(request)
+            else:
+                # Unknown method
+                response = self._json_rpc_response(id, {
+                    code="method_not_found",
+                    message="Method not found",
+                    data="Unknown method: " + method
+                })
+                return JSONRPCResponse(request.id, error.to_json())
+                
+        except Exception as e:
+            # Internal server error
+            error = JSONRPCError(
+                id=request.id,
+                code=-32603,
+                message="Internal error",
+                data=str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    def _handle_initialize(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle initialize request."""
+        self.initialized = True
+        
+        result = '{'
+        result += '"protocolVersion": "2024-11-05",'
+        result += '"capabilities": {'
+        result += '"tools": {}'
+        result += '},'
+        result += '"serverInfo": {'
+        result += '"name": "' + self.server_info["name"] + '",'
+        result += '"version": "' + self.server_info["version"] + '"'
+        result += '}'
+        result += '}'
+        
+        return JSONRPCResponse(request.id, result)
+    
+    def _handle_tools_list(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/list request."""
+        if not self.initialized:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32002,
+                message="Server not initialized",
+                data="Must call initialize first"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Build tools list
+        tools_json = '''[
+            {
+                "name": "get_current_weather",
+                "description": "Get current weather conditions for a city",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string", "description": "City name"},
+                        "units": {"type": "string", "enum": ["metric", "imperial"], "default": "metric"}
+                    },
+                    "required": ["city"]
+                }
+            },
+            {
+                "name": "evaluate_expression",
+                "description": "Evaluate a mathematical expression",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "expression": {"type": "string", "description": "Math expression to evaluate"}
+                    },
+                    "required": ["expression"]
+                }
+            },
+            {
+                "name": "calculate_statistics",
+                "description": "Calculate statistics for a list of numbers",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "numbers": {"type": "string", "description": "Comma-separated numbers"}
+                    },
+                    "required": ["numbers"]
+                }
+            },
+            {
+                "name": "list_directory",
+                "description": "List directory contents",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Directory path", "default": "."}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "weather",
+                "description": "Get weather (legacy tool)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string", "description": "City name"}
+                    },
+                    "required": ["city"]
+                }
+            },
+            {
+                "name": "calculate",
+                "description": "Basic calculation (legacy tool)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "expression": {"type": "string", "description": "Math expression"}
+                    },
+                    "required": ["expression"]
+                }
+            }
+        ]'''
+        
+        result = '{"tools": ' + tools_json + '}'
+        return JSONRPCResponse(request.id, result)
+    
+    def _handle_tools_call(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/call request."""
+        if not self.initialized:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32002,
+                message="Server not initialized",
+                data="Must call initialize first"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        try:
+            # Extract tool name from params
+            params = request.params
+            name_start = params.find('"name":"') + 8
+            name_end = params.find('"', name_start)
+            tool_name = params[name_start:name_end]
+            
+            if tool_name not in self.tools:
+                error = JSONRPCError(
+                    id=request.id,
+                    code=-32601,
+                    message="Tool '" + tool_name + "' not found",
+                    data="Available tools: " + str(list(self.tools.keys()))
+                )
+                return JSONRPCResponse(request.id, error.to_json())
+            
+            # Call the tool
+            tool_result = self.tools[tool_name](params)
+            
+            # Format as MCP tool result
+            content = '[{"type": "text", "text": "' + tool_result.replace('"', '\\"') + '"}]'
+            result = '{"content": ' + content + '}'
+            
+            return JSONRPCResponse(request.id, result)
+            
+        except Exception as e:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32603,
+                message="Tool execution failed",
+                data=str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    # Tool handlers
+    def _handle_get_current_weather(self, params: str) -> str:
+        """Handle weather tool call."""
+        city = self._extract_argument(params, "city")
+        units = self._extract_argument(params, "units", "metric")
+        return self.weather_api.get_current_weather(city, units)
+    
+    def _handle_evaluate_expression(self, params: str) -> str:
+        """Handle math expression evaluation."""
+        expression = self._extract_argument(params, "expression")
+        
+        try:
+            # Simple math evaluation
+            if "+" in expression:
+                parts = expression.split("+")
+                if len(parts) == 2:
+                    result = float(parts[0].strip()) + float(parts[1].strip())
+                    return f'{{"success": true, "expression": "{expression}", "result": {result}}}'
+            elif "*" in expression:
+                parts = expression.split("*")
+                if len(parts) == 2:
+                    result = float(parts[0].strip()) * float(parts[1].strip())
+                    return f'{{"success": true, "expression": "{expression}", "result": {result}}}'
+            
+            return f'{{"error": "Unsupported expression format", "expression": "{expression}"}}'
+        except Exception as e:
+            return f'{{"error": "Calculation failed", "message": "{str(e)}"}}'
+    
+    def _handle_calculate_statistics(self, params: str) -> str:
+        """Handle statistics calculation."""
+        numbers = self._extract_argument(params, "numbers")
+        
+        try:
+            num_list = [float(x.strip()) for x in numbers.split(',')]
+            if not num_list:
+                return '{"error": "No numbers provided"}'
+            
+            total = sum(num_list)
+            mean = total / len(num_list)
+            minimum = min(num_list)
+            maximum = max(num_list)
+            
+            return f'{{"success": true, "count": {len(num_list)}, "sum": {total}, "mean": {mean:.2f}, "min": {minimum}, "max": {maximum}}}'
+        except Exception as e:
+            return f'{{"error": "Statistics calculation failed", "message": "{str(e)}"}}'
+    
+    def _handle_list_directory(self, params: str) -> str:
+        """Handle directory listing."""
+        import os
+        path = self._extract_argument(params, "path", ".")
+        
+        try:
+            if not os.path.exists(path):
+                return f'{{"error": "Directory not found", "path": "{path}"}}'
+            
+            if not os.path.isdir(path):
+                return f'{{"error": "Not a directory", "path": "{path}"}}'
+            
+            items = os.listdir(path)
+            count = len(items)
+            
+            return f'{{"success": true, "path": "{path}", "count": {count}, "items": {str(items)}}}'
+        except Exception as e:
+            return f'{{"error": "Directory listing failed", "message": "{str(e)}"}}'
+    
+    def _handle_weather_legacy(self, params: str) -> str:
+        """Handle legacy weather tool call."""
+        city = self._extract_argument(params, "city")
+        return "Weather in " + city + ": Sunny, 72°F (This is a demo response from legacy tool)"
+    
+    def _handle_calculate_legacy(self, params: str) -> str:
+        """Handle legacy calculate tool call."""
+        expression = self._extract_argument(params, "expression")
+        
+        # Simple calculation for demo
+        if "+" in expression:
+            parts = expression.split("+")
+            if len(parts) == 2:
+                try:
+                    result = float(parts[0].strip()) + float(parts[1].strip())
+                    return "Result: " + str(result)
+                except:
+                    pass
+        elif "*" in expression:
+            parts = expression.split("*")
+            if len(parts) == 2:
+                try:
+                    result = float(parts[0].strip()) * float(parts[1].strip())
+                    return "Result: " + str(result)
+                except:
+                    pass
+        
+        return "Calculation result for " + expression + ": Unable to compute (legacy tool)"
+    
+    def _extract_argument(self, params: str, arg_name: str, default: str = "") -> str:
+        """Extract argument value from JSON params string."""
+        try:
+            # Find the argument in the JSON
+            search_key = f'"{arg_name}":"'
+            start = params.find(search_key)
+            if start == -1:
+                return default
+            
+            start += len(search_key)
+            end = params.find('"', start)
+            if end == -1:
+                return default
+            
+            return params[start:end]
+        except:
+            return default
+
+def create_simplified_mcp_server() -> SimplifiedMCPServer:
+    """Create a simplified MCP server instance."""
+    return SimplifiedMCPServer()

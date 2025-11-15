@@ -1,0 +1,248 @@
+# Clean Simplified Production MCP Server
+# Fresh implementation to avoid formatting issues
+
+from conduit.mcp.jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError
+
+class CleanMCPServer:
+    """Clean implementation of MCP server with basic tools."""
+    
+    def __init__(self):
+        """Initialize server."""
+        self.server_name = "Conduit Clean MCP Server"
+        self.server_version = "1.0.0"
+        self.initialized = False
+        
+        # Tool registry
+        self.tools = {
+            "weather": self._handle_weather,
+            "calculate": self._handle_calculate,
+            "math_eval": self._handle_math_eval,
+            "list_dir": self._handle_list_dir
+        }
+    
+    def handle_request(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle incoming JSON-RPC request."""
+        try:
+            method = request.method
+            
+            if method == "initialize":
+                return self._handle_initialize(request)
+            elif method == "tools/list":
+                return self._handle_tools_list(request)
+            elif method == "tools/call":
+                return self._handle_tools_call(request)
+            else:
+                error = JSONRPCError(
+                    id=request.id,
+                    code=-32601,
+                    message="Method not found",
+                    data="Unknown method: " + method
+                )
+                return JSONRPCResponse(request.id, error.to_json())
+        except Exception as e:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32603,
+                message="Internal error",
+                data=str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    def _handle_initialize(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle initialize request."""
+        self.initialized = True
+        
+        result = '{"protocolVersion": "2024-11-05",'
+        result += '"capabilities": {"tools": {}},'
+        result += '"serverInfo": {"name": "' + self.server_name + '",'
+        result += '"version": "' + self.server_version + '"}}'
+        
+        return JSONRPCResponse(request.id, result)
+    
+    def _handle_tools_list(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/list request."""
+        if not self.initialized:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32002,
+                message="Server not initialized",
+                data="Must call initialize first"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        tools = '[{"name": "weather", "description": "Get weather for a city",'
+        tools += '"inputSchema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}},'
+        tools += '{"name": "calculate", "description": "Basic calculation",'
+        tools += '"inputSchema": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}},'
+        tools += '{"name": "math_eval", "description": "Evaluate math expression",'
+        tools += '"inputSchema": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}},'
+        tools += '{"name": "list_dir", "description": "List directory contents",'
+        tools += '"inputSchema": {"type": "object", "properties": {"path": {"type": "string", "default": "."}}, "required": []}}]'
+        
+        result = '{"tools": ' + tools + '}'
+        return JSONRPCResponse(request.id, result)
+    
+    def _handle_tools_call(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/call request."""
+        if not self.initialized:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32002,
+                message="Server not initialized",
+                data="Must call initialize first"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        try:
+            params = request.params
+            name_start = params.find('"name":"') + 8
+            name_end = params.find('"', name_start)
+            tool_name = params[name_start:name_end]
+            
+            if tool_name not in self.tools:
+                error = JSONRPCError(
+                    id=request.id,
+                    code=-32601,
+                    message="Tool not found: " + tool_name,
+                    data="Available tools: " + str(list(self.tools.keys()))
+                )
+                return JSONRPCResponse(request.id, error.to_json())
+            
+            tool_result = self.tools[tool_name](params)
+            content = '[{"type": "text", "text": "' + tool_result.replace('"', '\\"') + '"}]'
+            result = '{"content": ' + content + '}'
+            
+            return JSONRPCResponse(request.id, result)
+        except Exception as e:
+            error = JSONRPCError(
+                id=request.id,
+                code=-32603,
+                message="Tool execution failed",
+                data=str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    def _extract_arg(self, params: str, arg_name: str, default: str = "") -> str:
+        """Extract argument from JSON params."""
+        try:
+            search_key = '"' + arg_name + '":"'
+            start = params.find(search_key)
+            if start == -1:
+                return default
+            start += len(search_key)
+            end = params.find('"', start)
+            if end == -1:
+                return default
+            return params[start:end]
+        except:
+            return default
+    
+    def _handle_weather(self, params: str) -> str:
+        """Handle weather tool."""
+        city = self._extract_arg(params, "city", "Unknown")
+        
+        # Simple weather responses
+        if "san francisco" in city.lower():
+            return "Weather in " + city + ": Partly Cloudy, 72°F"
+        elif "new york" in city.lower():
+            return "Weather in " + city + ": Overcast, 68°F"
+        elif "london" in city.lower():
+            return "Weather in " + city + ": Light Rain, 59°F"
+        else:
+            return "Weather in " + city + ": Sunny, 70°F (Demo data)"
+    
+    def _handle_calculate(self, params: str) -> str:
+        """Handle basic calculation."""
+        expression = self._extract_arg(params, "expression")
+        
+        try:
+            if "+" in expression:
+                parts = expression.split("+")
+                if len(parts) == 2:
+                    result = float(parts[0].strip()) + float(parts[1].strip())
+                    return "Result: " + str(result)
+            elif "*" in expression:
+                parts = expression.split("*")
+                if len(parts) == 2:
+                    result = float(parts[0].strip()) * float(parts[1].strip())
+                    return "Result: " + str(result)
+            elif "-" in expression and not expression.startswith("-"):
+                parts = expression.split("-")
+                if len(parts) == 2:
+                    result = float(parts[0].strip()) - float(parts[1].strip())
+                    return "Result: " + str(result)
+            elif "/" in expression:
+                parts = expression.split("/")
+                if len(parts) == 2:
+                    divisor = float(parts[1].strip())
+                    if divisor != 0:
+                        result = float(parts[0].strip()) / divisor
+                        return "Result: " + str(result)
+                    else:
+                        return "Error: Division by zero"
+            
+            return "Unable to calculate: " + expression
+        except Exception as e:
+            return "Calculation error: " + str(e)
+    
+    def _handle_math_eval(self, params: str) -> str:
+        """Handle math evaluation with more features."""
+        expression = self._extract_arg(params, "expression")
+        
+        # Replace constants
+        expr = expression.replace("pi", "3.14159")
+        expr = expr.replace("e", "2.71828")
+        
+        # Call basic calculator
+        return self._handle_calculate('{"expression": "' + expr + '"}')
+    
+    def _handle_list_dir(self, params: str) -> str:
+        """Handle directory listing."""
+        import os
+        path = self._extract_arg(params, "path", ".")
+        
+        try:
+            if not os.path.exists(path):
+                return "Error: Directory not found: " + path
+            
+            if not os.path.isdir(path):
+                return "Error: Not a directory: " + path
+            
+            items = os.listdir(path)
+            count = len(items)
+            
+            # Format as simple string (avoiding complex JSON for now)
+            result = "Directory listing for " + path + " (" + str(count) + " items): "
+            result += ", ".join(items[:10])  # First 10 items
+            if count > 10:
+                result += " ... and " + str(count - 10) + " more"
+            
+            return result
+        except Exception as e:
+            return "Directory listing error: " + str(e)
+
+def create_clean_server():
+    """Create a clean server instance."""
+    return CleanMCPServer()
+
+def main():
+    """Test the clean server."""
+    server = create_clean_server()
+    
+    # Test initialize
+    init_req = JSONRPCRequest("initialize", "1", '{"protocolVersion": "2024-11-05"}')
+    init_resp = server.handle_request(init_req)
+    print("Initialize response:", init_resp.result)
+    
+    # Test tools list
+    list_req = JSONRPCRequest("tools/list", "2", "{}")
+    list_resp = server.handle_request(list_req)
+    print("Tools list response:", list_resp.result[:100] + "...")
+    
+    # Test weather tool
+    weather_req = JSONRPCRequest("tools/call", "3", '{"name": "weather", "arguments": {"city": "San Francisco"}}')
+    weather_resp = server.handle_request(weather_req)
+    print("Weather response:", weather_resp.result)
+
+if __name__ == "__main__":
+    main()

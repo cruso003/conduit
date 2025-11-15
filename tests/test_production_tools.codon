@@ -1,0 +1,343 @@
+# Comprehensive Test Suite for Production MCP Tools
+# Tests all advanced tools: filesystem, math, web scraping, weather API
+
+import sys
+from conduit.mcp.production_server import ProductionMCPServer
+from conduit.mcp.jsonrpc import JSONRPCRequest
+
+def test_filesystem_tools():
+    """Test file system operations."""
+    print("Testing File System Tools...")
+    
+    server = ProductionMCPServer()
+    
+    # Initialize server
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    server.handle_request(init_request)
+    
+    # Test list_directory
+    list_request = JSONRPCRequest("tools/call", "2", '{"name":"list_directory","arguments":{"dir_path":"."}}')
+    response = server.handle_request(list_request)
+    
+    if '"success": true' in response.result:
+        print("✅ list_directory works correctly")
+    else:
+        print("❌ list_directory failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test file_info
+    info_request = JSONRPCRequest("tools/call", "3", '{"name":"file_info","arguments":{"file_path":"."}}')
+    response = server.handle_request(info_request)
+    
+    if '"success": true' in response.result:
+        print("✅ file_info works correctly")
+    else:
+        print("❌ file_info failed")
+        return False
+    
+    print("✅ File System Tools passed")
+    return True
+
+def test_math_tools():
+    """Test mathematical operations."""
+    print("Testing Math Tools...")
+    
+    server = ProductionMCPServer()
+    
+    # Initialize server
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    server.handle_request(init_request)
+    
+    # Test evaluate_expression
+    expr_request = JSONRPCRequest("tools/call", "2", '{"name":"evaluate_expression","arguments":{"expression":"2+3"}}')
+    response = server.handle_request(expr_request)
+    
+    if '"result": 5' in response.result:
+        print("✅ evaluate_expression works correctly")
+    else:
+        print("❌ evaluate_expression failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test calculate_statistics
+    stats_request = JSONRPCRequest("tools/call", "3", '{"name":"calculate_statistics","arguments":{"numbers":"1,2,3,4,5"}}')
+    response = server.handle_request(stats_request)
+    
+    if '"mean": 3' in response.result:
+        print("✅ calculate_statistics works correctly")
+    else:
+        print("❌ calculate_statistics failed")
+        return False
+    
+    # Test trigonometry
+    trig_request = JSONRPCRequest("tools/call", "4", '{"name":"trigonometry","arguments":{"function":"sin","value":"0"}}')
+    response = server.handle_request(trig_request)
+    
+    if '"result": 0' in response.result:
+        print("✅ trigonometry works correctly")
+    else:
+        print("❌ trigonometry failed")
+        return False
+    
+    # Test number_theory
+    factorial_request = JSONRPCRequest("tools/call", "5", '{"name":"number_theory","arguments":{"operation":"factorial","number":"5"}}')
+    response = server.handle_request(factorial_request)
+    
+    if '"result": 120' in response.result:
+        print("✅ number_theory works correctly")
+    else:
+        print("❌ number_theory failed")
+        return False
+    
+    print("✅ Math Tools passed")
+    return True
+
+def test_webscraping_tools():
+    """Test web scraping operations."""
+    print("Testing Web Scraping Tools...")
+    
+    server = ProductionMCPServer()
+    
+    # Initialize server
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    server.handle_request(init_request)
+    
+    # Test fetch_url
+    fetch_request = JSONRPCRequest("tools/call", "2", '{"name":"fetch_url","arguments":{"url":"https://example.com"}}')
+    response = server.handle_request(fetch_request)
+    
+    if '"success": true' in response.result:
+        print("✅ fetch_url works correctly")
+    else:
+        print("❌ fetch_url failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test extract_text
+    html_content = "<html><body><h1>Test</h1><p>Hello World</p></body></html>"
+    text_request = JSONRPCRequest("tools/call", "3", f'{{"name":"extract_text","arguments":{{"html":"{html_content}"}}}}')
+    response = server.handle_request(text_request)
+    
+    if '"success": true' in response.result and 'Test' in response.result:
+        print("✅ extract_text works correctly")
+    else:
+        print("❌ extract_text failed")
+        return False
+    
+    # Test extract_links
+    html_with_links = '<html><body><a href="https://example.com">Link</a></body></html>'
+    links_request = JSONRPCRequest("tools/call", "4", f'{{"name":"extract_links","arguments":{{"html":"{html_with_links}"}}}}')
+    response = server.handle_request(links_request)
+    
+    if '"success": true' in response.result:
+        print("✅ extract_links works correctly")
+    else:
+        print("❌ extract_links failed")
+        return False
+    
+    print("✅ Web Scraping Tools passed")
+    return True
+
+def test_weather_api_tools():
+    """Test weather API operations."""
+    print("Testing Weather API Tools...")
+    
+    server = ProductionMCPServer()
+    
+    # Initialize server
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    server.handle_request(init_request)
+    
+    # Test get_current_weather
+    weather_request = JSONRPCRequest("tools/call", "2", '{"name":"get_current_weather","arguments":{"city":"San Francisco","units":"metric"}}')
+    response = server.handle_request(weather_request)
+    
+    if '"success": true' in response.result and 'San Francisco' in response.result:
+        print("✅ get_current_weather works correctly")
+    else:
+        print("❌ get_current_weather failed")
+        print(f"Response: {response.result}")
+        return False
+    
+    # Test get_forecast
+    forecast_request = JSONRPCRequest("tools/call", "3", '{"name":"get_forecast","arguments":{"city":"New York","days":3}}')
+    response = server.handle_request(forecast_request)
+    
+    if '"success": true' in response.result and 'forecast' in response.result:
+        print("✅ get_forecast works correctly")
+    else:
+        print("❌ get_forecast failed")
+        return False
+    
+    # Test get_weather_alerts
+    alerts_request = JSONRPCRequest("tools/call", "4", '{"name":"get_weather_alerts","arguments":{"city":"Miami"}}')
+    response = server.handle_request(alerts_request)
+    
+    if '"success": true' in response.result:
+        print("✅ get_weather_alerts works correctly")
+    else:
+        print("❌ get_weather_alerts failed")
+        return False
+    
+    print("✅ Weather API Tools passed")
+    return True
+
+def test_legacy_tools():
+    """Test legacy demo tools for compatibility."""
+    print("Testing Legacy Tools...")
+    
+    server = ProductionMCPServer()
+    
+    # Initialize server
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    server.handle_request(init_request)
+    
+    # Test legacy weather tool
+    weather_request = JSONRPCRequest("tools/call", "2", '{"name":"weather","arguments":{"city":"Boston"}}')
+    response = server.handle_request(weather_request)
+    
+    if 'Weather in Boston' in response.result:
+        print("✅ legacy weather tool works correctly")
+    else:
+        print("❌ legacy weather tool failed")
+        return False
+    
+    # Test legacy calculate tool
+    calc_request = JSONRPCRequest("tools/call", "3", '{"name":"calculate","arguments":{"expression":"6*7"}}')
+    response = server.handle_request(calc_request)
+    
+    if 'Result: 42' in response.result:
+        print("✅ legacy calculate tool works correctly")
+    else:
+        print("❌ legacy calculate tool failed")
+        return False
+    
+    print("✅ Legacy Tools passed")
+    return True
+
+def test_tools_list():
+    """Test that all tools are properly listed."""
+    print("Testing Tools List...")
+    
+    server = ProductionMCPServer()
+    
+    # Initialize server
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    server.handle_request(init_request)
+    
+    # Test tools/list
+    list_request = JSONRPCRequest("tools/list", "2", '{}')
+    response = server.handle_request(list_request)
+    
+    # Check for key tools
+    required_tools = [
+        "read_file", "write_file", "list_directory", "file_info",
+        "evaluate_expression", "calculate_statistics", "trigonometry", "number_theory",
+        "fetch_url", "extract_text", "extract_links",
+        "get_current_weather", "get_forecast", "get_weather_alerts",
+        "weather", "calculate"
+    ]
+    
+    for tool in required_tools:
+        if f'"name": "{tool}"' not in response.result:
+            print(f"❌ Missing tool: {tool}")
+            return False
+    
+    print(f"✅ All {len(required_tools)} tools properly listed")
+    return True
+
+def test_error_handling():
+    """Test error handling for invalid requests."""
+    print("Testing Error Handling...")
+    
+    server = ProductionMCPServer()
+    
+    # Test uninitialized server
+    tools_request = JSONRPCRequest("tools/list", "1", '{}')
+    response = server.handle_request(tools_request)
+    
+    if '"error"' in response.result and "not initialized" in response.result.lower():
+        print("✅ Uninitialized server error handled correctly")
+    else:
+        print("❌ Uninitialized server error not handled")
+        return False
+    
+    # Initialize server
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05"}')
+    server.handle_request(init_request)
+    
+    # Test unknown tool
+    unknown_request = JSONRPCRequest("tools/call", "2", '{"name":"nonexistent_tool","arguments":{}}')
+    response = server.handle_request(unknown_request)
+    
+    if '"error"' in response.result and "not found" in response.result.lower():
+        print("✅ Unknown tool error handled correctly")
+    else:
+        print("❌ Unknown tool error not handled")
+        return False
+    
+    # Test unknown method
+    unknown_method = JSONRPCRequest("unknown/method", "3", '{}')
+    response = server.handle_request(unknown_method)
+    
+    if '"error"' in response.result and "not found" in response.result.lower():
+        print("✅ Unknown method error handled correctly")
+    else:
+        print("❌ Unknown method error not handled")
+        return False
+    
+    print("✅ Error Handling passed")
+    return True
+
+def run_production_tools_tests():
+    """Run all production tools tests."""
+    print("🧪 Starting Production MCP Tools Tests")
+    print("=" * 60)
+    
+    tests = [
+        test_filesystem_tools,
+        test_math_tools,
+        test_webscraping_tools,
+        test_weather_api_tools,
+        test_legacy_tools,
+        test_tools_list,
+        test_error_handling
+    ]
+    
+    passed = 0
+    total = len(tests)
+    
+    for test in tests:
+        try:
+            if test():
+                passed += 1
+            print()  # Add spacing between tests
+        except Exception as e:
+            print(f"❌ Test error: {e}")
+            print()
+    
+    print("=" * 60)
+    print(f"📊 Test Results: {passed}/{total} tests passed")
+    
+    if passed == total:
+        print("🎉 All Production Tools tests passed! ✅")
+        print("🚀 Production MCP server is ready for deployment!")
+        print("\n🛠️  Available Tool Categories:")
+        print("   📁 File System: 4 tools (read, write, list, info)")
+        print("   🔢 Mathematics: 4 tools (expressions, statistics, trig, number theory)")
+        print("   🌐 Web Scraping: 3 tools (fetch, extract text/links)")
+        print("   🌤️  Weather API: 3 tools (current, forecast, alerts)")
+        print("   🔧 Legacy: 2 tools (compatibility)")
+        print(f"   📋 Total: {4+4+3+3+2} advanced production tools")
+    else:
+        print(f"❌ {total - passed} tests failed")
+        return False
+    
+    return True
+
+# Run tests if this file is executed directly
+if __name__ == "__main__":
+    success = run_production_tools_tests()
+    if not success:
+        sys.exit(1)

@@ -1,0 +1,174 @@
+"""
+MCP Tool implementation with schema support and execution capabilities
+"""
+
+class ToolParameter:
+    """Represents a tool parameter with type and description"""
+    
+    name: str
+    param_type: str
+    description: str
+    required: bool
+    
+    def __init__(self, name: str, param_type: str, description: str, required: bool = True):
+        self.name = name
+        self.param_type = param_type
+        self.description = description
+        self.required = required
+    
+    def to_json(self) -> str:
+        """Convert parameter to JSON schema format"""
+        json_str = '{'
+        json_str += '"type":"' + self.param_type + '",'
+        json_str += '"description":"' + self.description + '"'
+        json_str += '}'
+        return json_str
+
+
+class Tool:
+    """MCP Tool with schema validation and execution"""
+    
+    def __init__(self, name: str, description: str):
+        self.name = name
+        self.description = description
+        self.parameters = dict[str, ToolParameter]()
+        self.handler = None  # Function to call when tool is executed
+    
+    def add_parameter(self, name: str, param_type: str, description: str, required: bool = True):
+        """Add a parameter to the tool schema"""
+        param = ToolParameter(name, param_type, description, required)
+        self.parameters[name] = param
+    
+    def set_handler(self, handler):
+        """Set the function to call when tool is executed"""
+        self.handler = handler
+    
+    def get_schema(self) -> str:
+        """Generate JSON schema for the tool's input parameters"""
+        schema = '{'
+        schema += '"type":"object",'
+        schema += '"properties":{'
+        
+        # Add parameter schemas
+        prop_list = []
+        for param_name, param in self.parameters.items():
+            prop_entry = f'"{param_name}":{param.to_json()}'
+            prop_list.append(prop_entry)
+        
+        schema += ",".join(prop_list)
+        schema += '},'
+        
+        # Add required fields
+        required_params = []
+        for param_name, param in self.parameters.items():
+            if param.required:
+                required_params.append(f'"{param_name}"')
+        
+        if len(required_params) > 0:
+            schema += '"required":[' + ",".join(required_params) + ']'
+        else:
+            schema += '"required":[]'
+        
+        schema += '}'
+        return schema
+    
+    def execute(self, arguments: str) -> str:
+        """Execute the tool with given arguments"""
+        if self.handler is None:
+            return "Error: No handler set for tool '" + self.name + "'"
+        
+        try:
+            # Parse arguments (simplified JSON parsing)
+            args = self._parse_arguments(arguments)
+            
+            # Validate required parameters
+            for param_name, param in self.parameters.items():
+                if param.required and param_name not in args:
+                    return "Error: Missing required parameter '" + param_name + "'"
+            
+            # Call handler with parsed arguments
+            return self.handler(args)
+            
+        except Exception as e:
+            return "Error executing tool '" + self.name + "': " + str(e)
+    
+    def _parse_arguments(self, arguments: str) -> dict[str, str]:
+        """Parse JSON arguments into a dictionary (simplified)"""
+        args = {}
+        
+        if arguments == "" or arguments == "{}":
+            return args
+        
+        # Remove outer braces
+        if arguments.startswith('{') and arguments.endswith('}'):
+            content = arguments[1:-1]
+        else:
+            content = arguments
+        
+        # Split by commas (simplified - doesn't handle nested objects)
+        pairs = content.split(',')
+        
+        for pair in pairs:
+            if ':' in pair:
+                key_value = pair.split(':', 1)
+                if len(key_value) == 2:
+                    key = key_value[0].strip().strip('"')
+                    value = key_value[1].strip().strip('"')
+                    args[key] = value
+        
+        return args
+    
+    def to_json(self) -> str:
+        """Convert tool to MCP tool description format"""
+        json_str = '{'
+        json_str += f'"name":"{self.name}",'
+        json_str += f'"description":"{self.description}",'
+        json_str += f'"inputSchema":{self.get_schema()}'
+        json_str += '}'
+        return json_str
+
+
+# Helper function to create a simple tool
+def create_tool(name: str, description: str, handler = None) -> Tool:
+    """Create a new tool with name and description"""
+    tool = Tool(name, description)
+    if handler is not None:
+        tool.set_handler(handler)
+    return tool
+
+
+# Example tool factory functions
+def create_weather_tool() -> Tool:
+    """Create a sample weather tool"""
+    tool = Tool("weather", "Get current weather for a city")
+    tool.add_parameter("city", "string", "The city to get weather for", True)
+    
+    def weather_handler(args: dict[str, str]) -> str:
+        city = args.get("city", "Unknown")
+        return "Weather in " + city + ": Sunny, 72°F (This is a demo response)"
+    
+    tool.set_handler(weather_handler)
+    return tool
+
+
+def create_calculator_tool() -> Tool:
+    """Create a sample calculator tool"""
+    tool = Tool("calculate", "Perform basic mathematical calculations")
+    tool.add_parameter("expression", "string", "Mathematical expression to evaluate", True)
+    
+    def calc_handler(args: dict[str, str]) -> str:
+        expression = args.get("expression", "")
+        # Simplified calculator - would use proper math parser in real implementation
+        try:
+            # Basic safety check
+            if any(char in expression for char in "abcdefghijklmnopqrstuvwxyz"):
+                return "Error: Only numbers and basic operators (+, -, *, /) allowed"
+            
+            # Simple evaluation (unsafe - for demo only)
+            result = str(eval(expression))
+            return "Result: " + result
+        except:
+            return "Error: Invalid expression '" + expression + "'"
+    
+    tool.set_handler(calc_handler)
+    return tool

@@ -1,0 +1,36 @@
+# Debug specific test failures
+from conduit.mcp.transport import MCPStdioTransport
+
+def debug_test_failures():
+    """Debug the specific test failures."""
+    transport = MCPStdioTransport()
+    
+    print("=== DEBUGGING TEST EXPECTATIONS ===")
+    
+    # Test tools/list exactly as in the test
+    print("\n1. Tools List Test Debug:")
+    tools_request = '{"jsonrpc":"2.0","method":"tools/list","id":"2","params":{}}'
+    response = transport._process_message(tools_request)
+    print(f"Full Response: {response}")
+    print(f"Contains '\"tools\"': {'\"tools\"' in response}")
+    print(f"Contains '\"weather\"': {'\"weather\"' in response}")
+    print(f"Contains '\"calculator\"': {'\"calculator\"' in response}")
+    
+    # Test weather tool call exactly as in the test
+    print("\n2. Weather Tool Call Test Debug:")
+    weather_request = '{"jsonrpc":"2.0","method":"tools/call","id":"3","params":{"name":"weather","arguments":{"city":"San Francisco"}}}'
+    response = transport._process_message(weather_request)
+    print(f"Full Response: {response}")
+    print(f"Contains '\"content\"': {'\"content\"' in response}")
+    print(f"Contains 'Weather in San Francisco': {'Weather in San Francisco' in response}")
+    
+    # Test malformed JSON exactly as in the test
+    print("\n3. Malformed JSON Test Debug:")
+    malformed_json = '{"jsonrpc":"2.0","method":"test"'  # Missing closing brace
+    response = transport._process_message(malformed_json)
+    print(f"Full Response: {response}")
+    print(f"Contains '\"error\"': {'\"error\"' in response}")
+    print(f"Contains '\"-32700\"': {'\"-32700\"' in response}")
+
+if __name__ == "__main__":
+    debug_test_failures()

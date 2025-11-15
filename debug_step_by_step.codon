@@ -1,0 +1,24 @@
+from conduit.mcp.jsonrpc import JSONRPCError, ERROR_METHOD_NOT_FOUND
+
+def test_step_by_step():
+    print("Creating JSONRPCError...")
+    tool_not_found_error = JSONRPCError("3", ERROR_METHOD_NOT_FOUND, "Tool 'nonexistent' not found")
+    
+    print("Generating JSON...")
+    json_str = tool_not_found_error.to_json()
+    print(f"JSON: {json_str}")
+    
+    print("Testing first assertion...")
+    code_check = '"code":-32601' in json_str
+    print(f"Contains '\"code\":-32601': {code_check}")
+    assert code_check
+    
+    print("Testing second assertion...")
+    nonexistent_check = '"nonexistent"' in json_str
+    print(f"Contains '\"nonexistent\"': {nonexistent_check}")
+    assert nonexistent_check
+    
+    print("All assertions passed!")
+
+if __name__ == "__main__":
+    test_step_by_step()

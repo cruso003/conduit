@@ -1,0 +1,35 @@
+# Simple MCP Integration Test
+# Test the new MCP integration in the framework
+
+from conduit.framework.conduit import Conduit
+from conduit.http.request import HTTPRequest
+
+def main():
+    # Create framework instance  
+    app = Conduit()
+    
+    # Enable MCP support
+    app.enable_mcp()
+    
+    # Simple route
+    @app.get("/")
+    def index(request: HTTPRequest):
+        return {"message": "MCP Integration Working", "mcp_enabled": True}
+    
+    # Register a simple MCP tool
+    @app.tool("hello", "Say hello")
+    def hello_tool():
+        return "Hello from MCP tool!"
+    
+    print("MCP Integration Demo")
+    print("Routes:")
+    print("  GET  / - Main page")
+    print("  POST /mcp - MCP endpoint")
+    print("Tools:")
+    print("  - hello: Say hello")
+    
+    # Start server
+    app.run()
+
+if __name__ == "__main__":
+    main()

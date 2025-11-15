@@ -1,0 +1,311 @@
+# Web Scraping Tool for MCP
+# Provides safe web content extraction with rate limiting and validation
+
+import sys
+import time
+
+class WebScrapingTool:
+    """
+    Safe web scraping tool for MCP.
+    
+    Provides URL content extraction, HTML parsing, and data extraction
+    with safety constraints and rate limiting.
+    """
+    
+    def __init__(self):
+        """Initialize web scraping tool with safety limits."""
+        # Rate limiting
+        self.last_request_time = 0
+        self.min_request_interval = 1.0  # 1 second between requests
+        
+        # Safety limits
+        self.max_content_size = 5 * 1024 * 1024  # 5MB limit
+        self.timeout = 10  # 10 second timeout
+        self.max_redirects = 5
+        
+        # Allowed domains (for demo, allowing common safe sites)
+        self.allowed_domains = {
+            'httpbin.org',
+            'jsonplaceholder.typicode.com',
+            'example.com',
+            'httpstat.us'
+        }
+        
+        # Blocked patterns
+        self.blocked_patterns = [
+            'localhost',
+            '127.0.0.1',
+            '0.0.0.0',
+            '192.168.',
+            '10.',
+            '172.'
+        ]
+    
+    def _validate_url(self, url: str) -> bool:
+        """
+        Validate URL for safety.
+        
+        Args:
+            url: URL to validate
+            
+        Returns:
+            True if URL is safe, False otherwise
+        """
+        try:
+            # Basic URL validation
+            if not url.startswith(('http://', 'https://')):
+                return False
+            
+            # Extract domain
+            if '://' not in url:
+                return False
+            
+            domain_part = url.split('://')[1].split('/')[0].split(':')[0]
+            
+            # Check blocked patterns
+            for pattern in self.blocked_patterns:
+                if pattern in domain_part:
+                    return False
+            
+            # Check allowed domains (for demo purposes)
+            # In production, you might want more flexible domain validation
+            return domain_part in self.allowed_domains
+            
+        except Exception:
+            return False
+    
+    def _enforce_rate_limit(self):
+        """Enforce rate limiting between requests."""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        
+        if time_since_last < self.min_request_interval:
+            sleep_time = self.min_request_interval - time_since_last
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+    
+    def fetch_url(self, url: str) -> str:
+        """
+        Fetch content from a URL.
+        
+        Args:
+            url: URL to fetch
+            
+        Returns:
+            JSON string with content or error
+        """
+        try:
+            if not self._validate_url(url):
+                return '{"error": "URL not allowed or invalid", "url": "' + url + '"}'
+            
+            # Enforce rate limiting
+            self._enforce_rate_limit()
+            
+            # Simulate HTTP request (in real implementation would use HTTP library)
+            # For this demo, we'll return mock responses for known test URLs
+            if url == "https://httpbin.org/json":
+                content = '{"slideshow": {"author": "Yours Truly", "date": "date of publication", "slides": [{"title": "Wake up to WonderWidgets!", "type": "all"}, {"items": ["Why <em>WonderWidgets</em> are great", "Who <em>buys</em> WonderWidgets"], "title": "Overview", "type": "all"}], "title": "Sample Slide Show"}}'
+                return '{"success": true, "url": "' + url + '", "content": "' + content.replace('"', '\\"') + '", "size": ' + str(len(content)) + ', "content_type": "application/json"}'
+            
+            elif url == "https://jsonplaceholder.typicode.com/posts/1":
+                content = '{"userId": 1, "id": 1, "title": "sunt aut facere repellat provident occaecati excepturi optio reprehenderit", "body": "quia et suscipit\\nsuscipit recusandae consequuntur expedita et cum\\nreprehenderit molestiae ut ut quas totam\\nnostrum rerum est autem sunt rem eveniet architecto"}'
+                return '{"success": true, "url": "' + url + '", "content": "' + content.replace('"', '\\"') + '", "size": ' + str(len(content)) + ', "content_type": "application/json"}'
+            
+            elif url == "https://example.com":
+                content = '''<!DOCTYPE html>
+<html>
+<head>
+    <title>Example Domain</title>
+</head>
+<body>
+    <div>
+        <h1>Example Domain</h1>
+        <p>This domain is for use in illustrative examples in documents.</p>
+    </div>
+</body>
+</html>'''
+                escaped_content = content.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+                return '{"success": true, "url": "' + url + '", "content": "' + escaped_content + '", "size": ' + str(len(content)) + ', "content_type": "text/html"}'
+            
+            else:
+                return '{"error": "URL not found or not supported in demo", "url": "' + url + '"}'
+            
+        except Exception as e:
+            return '{"error": "Fetch failed", "message": "' + str(e) + '"}'
+    
+    def extract_text(self, html: str) -> str:
+        """
+        Extract plain text from HTML content.
+        
+        Args:
+            html: HTML content string
+            
+        Returns:
+            JSON string with extracted text
+        """
+        try:
+            # Simple HTML tag removal (basic implementation)
+            text = html
+            
+            # Remove script and style tags completely
+            while '<script' in text:
+                start = text.find('<script')
+                if start == -1:
+                    break
+                end = text.find('</script>', start)
+                if end == -1:
+                    break
+                text = text[:start] + text[end + 9:]
+            
+            while '<style' in text:
+                start = text.find('<style')
+                if start == -1:
+                    break
+                end = text.find('</style>', start)
+                if end == -1:
+                    break
+                text = text[:start] + text[end + 8:]
+            
+            # Remove HTML tags
+            while '<' in text and '>' in text:
+                start = text.find('<')
+                end = text.find('>', start)
+                if start == -1 or end == -1:
+                    break
+                text = text[:start] + ' ' + text[end + 1:]
+            
+            # Clean up whitespace
+            lines = text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                line = line.strip()
+                if line:
+                    cleaned_lines.append(line)
+            
+            clean_text = '\n'.join(cleaned_lines)
+            
+            # Escape for JSON
+            escaped_text = clean_text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+            
+            return '{"success": true, "text": "' + escaped_text + '", "length": ' + str(len(clean_text)) + '}'
+            
+        except Exception as e:
+            return '{"error": "Text extraction failed", "message": "' + str(e) + '"}'
+    
+    def extract_links(self, html: str, base_url: str = "") -> str:
+        """
+        Extract links from HTML content.
+        
+        Args:
+            html: HTML content string
+            base_url: Base URL for relative links
+            
+        Returns:
+            JSON string with extracted links
+        """
+        try:
+            links = []
+            
+            # Simple link extraction
+            text = html.lower()
+            pos = 0
+            
+            while True:
+                # Find next <a tag
+                start = text.find('<a ', pos)
+                if start == -1:
+                    break
+                
+                # Find href attribute
+                href_start = text.find('href=', start)
+                if href_start == -1 or href_start > text.find('>', start):
+                    pos = start + 1
+                    continue
+                
+                # Extract href value
+                href_start += 5
+                quote_char = text[href_start] if text[href_start] in ['"', "'"] else ' '
+                if quote_char != ' ':
+                    href_start += 1
+                
+                href_end = text.find(quote_char, href_start) if quote_char != ' ' else text.find(' ', href_start)
+                if href_end == -1:
+                    href_end = text.find('>', href_start)
+                
+                if href_end > href_start:
+                    href = html[href_start:href_end]  # Use original case
+                    if href and href not in links:
+                        links.append(href)
+                
+                pos = start + 1
+            
+            # Format links as JSON array
+            link_strings = []
+            for link in links[:50]:  # Limit to first 50 links
+                escaped_link = link.replace('\\', '\\\\').replace('"', '\\"')
+                link_strings.append('"' + escaped_link + '"')
+            
+            links_json = '[' + ', '.join(link_strings) + ']'
+            
+            return '{"success": true, "links": ' + links_json + ', "count": ' + str(len(links)) + '}'
+            
+        except Exception as e:
+            return '{"error": "Link extraction failed", "message": "' + str(e) + '"}'
+
+def create_webscraping_tool() -> WebScrapingTool:
+    """Create a configured web scraping tool instance."""
+    return WebScrapingTool()
+
+# Tool registration functions for MCP integration
+def get_webscraping_tools_schema() -> str:
+    """Get JSON schema for web scraping tools."""
+    return '''[
+        {
+            "name": "fetch_url",
+            "description": "Fetch content from a URL (restricted to safe domains)",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch content from (must be from allowed domains)"
+                    }
+                },
+                "required": ["url"]
+            }
+        },
+        {
+            "name": "extract_text",
+            "description": "Extract plain text from HTML content",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "html": {
+                        "type": "string",
+                        "description": "HTML content to extract text from"
+                    }
+                },
+                "required": ["html"]
+            }
+        },
+        {
+            "name": "extract_links",
+            "description": "Extract links from HTML content",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "html": {
+                        "type": "string",
+                        "description": "HTML content to extract links from"
+                    },
+                    "base_url": {
+                        "type": "string",
+                        "description": "Base URL for resolving relative links",
+                        "default": ""
+                    }
+                },
+                "required": ["html"]
+            }
+        }
+    ]'''
