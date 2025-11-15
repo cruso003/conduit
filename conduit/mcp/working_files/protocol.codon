@@ -1,0 +1,317 @@
+"""
+Final simplified MCP protocol with no polymorphism issues
+"""
+
+from .jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError, JSONRPCNotification
+from .jsonrpc import ERROR_INVALID_REQUEST, ERROR_METHOD_NOT_FOUND, ERROR_INVALID_PARAMS
+
+# MCP Protocol Version
+MCP_VERSION = "2024-11-05"
+
+# Server Capabilities (simplified)
+class ServerCapabilities:
+    def __init__(self):
+        self.tools = True
+        self.resources = False
+        self.prompts = False
+        self.logging = False
+    
+    def to_dict(self) -> str:
+        """Convert capabilities to JSON string"""
+        return '{"tools":{}}'
+
+
+class ClientCapabilities:
+    def __init__(self):
+        self.sampling = False
+        self.roots = False
+
+
+def parse_client_capabilities(json_str: str) -> ClientCapabilities:
+    """Parse client capabilities from JSON"""
+    caps = ClientCapabilities()
+    if '"sampling":' in json_str:
+        caps.sampling = True
+    if '"roots":' in json_str:
+        caps.roots = True
+    return caps
+
+
+# Simplified tool registry - just store name and handler functions
+class ToolRegistry:
+    def __init__(self):
+        self.tools = {}  # name -> (description, schema, handler_type)
+    
+    def add_weather_tool(self):
+        """Add weather tool"""
+        schema = '{"type":"object","properties":{"city":{"type":"string","description":"The city to get weather for"}},"required":["city"]}'
+        self.tools["weather"] = ("Get current weather for a city", schema, "weather")
+    
+    def add_calculator_tool(self):
+        """Add calculator tool"""
+        schema = '{"type":"object","properties":{"expression":{"type":"string","description":"Mathematical expression to evaluate"}},"required":["expression"]}'
+        self.tools["calculate"] = ("Perform basic mathematical calculations", schema, "calculator")
+    
+    def get_tools_list(self) -> str:
+        """Get tools list as JSON"""
+        tools_json = []
+        for name, (description, schema, handler_type) in self.tools.items():
+            tool_json = '{"name":"' + name + '","description":"' + description + '","inputSchema":' + schema + '}'
+            tools_json.append(tool_json)
+        return '{"tools":[' + ",".join(tools_json) + ']}'
+    
+    def execute_tool(self, name: str, arguments: str) -> str:
+        """Execute a tool by name"""
+        if name not in self.tools:
+            return "ERROR: Tool not found"
+        
+        handler_type = self.tools[name][2]
+        
+        if handler_type == "weather":
+            return self._execute_weather(arguments)
+        elif handler_type == "calculator":
+            return self._execute_calculator(arguments)
+        else:
+            return "ERROR: Unknown handler type"
+    
+    def _execute_weather(self, arguments: str) -> str:
+        """Execute weather tool"""
+        if '"city"' in arguments:
+            start = arguments.find('"city"')
+            start = arguments.find(':', start)
+            start = arguments.find('"', start) + 1
+            end = arguments.find('"', start)
+            if end > start:
+                city = arguments[start:end]
+                return "Weather in " + city + ": Sunny, 72°F (This is a demo response)"
+        return "Weather in Unknown: Sunny, 72°F (This is a demo response)"
+    
+    def _execute_calculator(self, arguments: str) -> str:
+        """Execute calculator tool"""
+        if '"expression"' in arguments:
+            start = arguments.find('"expression"')
+            start = arguments.find(':', start)
+            start = arguments.find('"', start) + 1
+            end = arguments.find('"', start)
+            if end > start:
+                expression = arguments[start:end]
+                # Simple calculator - just handle basic cases
+                if "+" in expression:
+                    parts = expression.split("+")
+                    if len(parts) == 2:
+                        try:
+                            a = int(parts[0].strip())
+                            b = int(parts[1].strip())
+                            return "Result: " + str(a + b)
+                        except:
+                            return "Error: Invalid numbers"
+                elif "*" in expression:
+                    parts = expression.split("*")
+                    if len(parts) == 2:
+                        try:
+                            a = int(parts[0].strip())
+                            b = int(parts[1].strip())
+                            return "Result: " + str(a * b)
+                        except:
+                            return "Error: Invalid numbers"
+                else:
+                    return "Error: Only addition (+) and multiplication (*) supported"
+        return "Error: No expression provided"
+
+
+class MCPProtocol:
+    """Core MCP protocol implementation"""
+    
+    def __init__(self):
+        self.server_name = "Conduit MCP Server"
+        self.server_version = "1.0.0"
+        self.protocol_version = MCP_VERSION
+        self.capabilities = ServerCapabilities()
+        self.tool_registry = ToolRegistry()
+        self.initialized = False
+    
+    def add_weather_tool(self):
+        """Add weather tool to the server"""
+        self.tool_registry.add_weather_tool()
+    
+    def add_calculator_tool(self):
+        """Add calculator tool to the server"""
+        self.tool_registry.add_calculator_tool()
+    
+    def handle_request(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle an MCP request and return appropriate response"""
+        try:
+            if request.method == "initialize":
+                return self._handle_initialize(request)
+            elif request.method == "tools/list":
+                return self._handle_tools_list(request)
+            elif request.method == "tools/call":
+                return self._handle_tools_call(request)
+            else:
+                error = JSONRPCError(
+                    request.id,
+                    ERROR_METHOD_NOT_FOUND,
+                    "Method '" + request.method + "' not found"
+                )
+                return JSONRPCResponse(request.id, error.to_json())
+                
+        except Exception as e:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Error processing request: " + str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    def _handle_initialize(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle initialize request"""
+        if self.initialized:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Server already initialized"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        self.initialized = True
+        
+        # Build response
+        response_data = '{'
+        response_data += '"protocolVersion":"' + self.protocol_version + '",'
+        response_data += '"capabilities":' + self.capabilities.to_dict() + ','
+        response_data += '"serverInfo":{'
+        response_data += '"name":"' + self.server_name + '",'
+        response_data += '"version":"' + self.server_version + '"'
+        response_data += '}'
+        response_data += '}'
+        
+        return JSONRPCResponse(request.id, response_data)
+    
+    def _handle_tools_list(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/list request"""
+        if not self.initialized:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Server not initialized"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        response_data = self.tool_registry.get_tools_list()
+        return JSONRPCResponse(request.id, response_data)
+    
+    def _handle_tools_call(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """Handle tools/call request"""
+        if not self.initialized:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Server not initialized"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Extract tool name from params
+        tool_name = self._extract_param_field(request.params, "name")
+        if tool_name == "":
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_PARAMS,
+                "Missing 'name' parameter"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Extract arguments
+        arguments = self._extract_param_field(request.params, "arguments")
+        
+        # Execute tool
+        result = self.tool_registry.execute_tool(tool_name, arguments)
+        
+        if result.startswith("ERROR:"):
+            error = JSONRPCError(
+                request.id,
+                ERROR_METHOD_NOT_FOUND,
+                result[7:]  # Remove "ERROR: " prefix
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Build response in MCP format
+        response_data = '{'
+        response_data += '"content":['
+        response_data += '{'
+        response_data += '"type":"text",'
+        response_data += '"text":"' + result + '"'
+        response_data += '}'
+        response_data += ']'
+        response_data += '}'
+        
+        return JSONRPCResponse(request.id, response_data)
+    
+    def _extract_param_field(self, params: str, field: str) -> str:
+        """Extract a field from parameters JSON string"""
+        if params == "":
+            return ""
+        
+        field_pattern = '"' + field + '":'
+        start_pos = params.find(field_pattern)
+        if start_pos == -1:
+            return ""
+        
+        start_pos += len(field_pattern)
+        
+        # Skip whitespace
+        while start_pos < len(params) and params[start_pos] in ' \t\n':
+            start_pos += 1
+        
+        if start_pos >= len(params):
+            return ""
+        
+        # Handle string values
+        if params[start_pos] == '"':
+            start_pos += 1
+            end_pos = start_pos
+            while end_pos < len(params) and params[end_pos] != '"':
+                if params[end_pos] == '\\':
+                    end_pos += 2  # Skip escaped character
+                else:
+                    end_pos += 1
+            return params[start_pos:end_pos]
+        
+        # Handle object values (for arguments)
+        elif params[start_pos] == '{':
+            brace_count = 0
+            end_pos = start_pos
+            while end_pos < len(params):
+                if params[end_pos] == '{':
+                    brace_count += 1
+                elif params[end_pos] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_pos += 1
+                        break
+                end_pos += 1
+            return params[start_pos:end_pos]
+        
+        return ""
+
+
+# Utility functions
+def create_initialize_response(server_name: str = "Conduit MCP Server", 
+                             server_version: str = "1.0.0") -> str:
+    """Create a standard initialize response"""
+    caps = ServerCapabilities()
+    
+    response_data = '{'
+    response_data += '"protocolVersion":"' + MCP_VERSION + '",'
+    response_data += '"capabilities":' + caps.to_dict() + ','
+    response_data += '"serverInfo":{'
+    response_data += '"name":"' + server_name + '",'
+    response_data += '"version":"' + server_version + '"'
+    response_data += '}'
+    response_data += '}'
+    
+    return response_data
+
+
+def create_tool_result(content: str) -> str:
+    """Create a tool execution result in MCP format"""
+    return '{"content":[{"type":"text","text":"' + content + '"}]}'

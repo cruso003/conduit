@@ -1,0 +1,307 @@
+# Test suite for MCP stdio transport layer
+# Tests message processing, line-delimited JSON handling, and error cases
+
+import sys
+from conduit.mcp.transport import MCPStdioTransport
+from conduit.mcp.jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError
+
+def test_message_processing():
+    """Test basic message processing functionality."""
+    print("Testing message processing...")
+    
+    transport = MCPStdioTransport()
+    
+    # Test initialize request
+    init_request = '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"Test Client","version":"1.0.0"}}}'
+    
+    response = transport._process_message(init_request)
+    
+    # Verify response contains expected fields
+    if '"jsonrpc":"2.0"' not in response:
+        print("❌ Missing jsonrpc field in response")
+        return False
+    if '"id":"1"' not in response:
+        print("❌ Missing id field in response")
+        return False
+    if '"protocolVersion":"2024-11-05"' not in response:
+        print("❌ Missing protocolVersion in response")
+        return False
+    if '"serverInfo"' not in response:
+        print("❌ Missing serverInfo in response")
+        return False
+        
+    print("✅ Initialize request processed correctly")
+    return True
+
+def test_tools_list():
+    """Test tools list functionality."""
+    print("Testing tools list...")
+    
+    transport = MCPStdioTransport()
+    
+    # First initialize the server
+    init_request = '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05"}}'
+    transport._process_message(init_request)
+    
+    # Test tools/list request
+    tools_request = '{"jsonrpc":"2.0","method":"tools/list","id":"2","params":{}}'
+    
+    response = transport._process_message(tools_request)
+    
+    # Verify response contains tools
+    if '"tools"' not in response:
+        print("❌ Missing tools field in response")
+        print(f"Actual response: {response}")
+        return False
+    if '"weather"' not in response:
+        print("❌ Missing weather tool in response")
+        return False
+    if '"calculate"' not in response:
+        print("❌ Missing calculate tool in response")
+        return False
+        
+    print("✅ Tools list processed correctly")
+    return True
+
+def test_tool_call():
+    """Test tool execution functionality."""
+    print("Testing tool execution...")
+    
+    transport = MCPStdioTransport()
+    
+    # First initialize the server
+    init_request = '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05"}}'
+    transport._process_message(init_request)
+    
+    # Test weather tool call
+    weather_request = '{"jsonrpc":"2.0","method":"tools/call","id":"3","params":{"name":"weather","arguments":{"city":"San Francisco"}}}'
+    
+    response = transport._process_message(weather_request)
+    
+    # Verify response contains tool result
+    if '"content"' not in response:
+        print("❌ Missing content field in response")
+        print(f"Actual response: {response}")
+        return False
+    if 'San Francisco' not in response:
+        print("❌ Missing weather data in response")
+        print(f"Actual response: {response}")
+        return False
+        
+    print("✅ Weather tool call processed correctly")
+    
+    # Test calculator tool call (note: tool is named 'calculate' not 'calculator')
+    calc_request = '{"jsonrpc":"2.0","method":"tools/call","id":"4","params":{"name":"calculate","arguments":{"expression":"5+3"}}}'
+    
+    response = transport._process_message(calc_request)
+    
+    # Verify calculator response
+    if '"content"' not in response:
+        print("❌ Missing content field in calculator response")
+        return False
+    if '8' not in response:
+        print("❌ Incorrect calculation result")
+        print(f"Actual response: {response}")
+        return False
+        
+    print("✅ Calculator tool call processed correctly")
+    return True
+
+def test_error_handling():
+    """Test error handling for invalid messages."""
+    print("Testing error handling...")
+    
+    transport = MCPStdioTransport()
+    
+    # Test malformed JSON
+    malformed_json = '{"jsonrpc":"2.0","method":"test"'  # Missing closing brace
+    
+    response = transport._process_message(malformed_json)
+    
+    # Verify error response
+    if '"error"' not in response:
+        print("❌ Missing error field for malformed JSON")
+        print(f"Actual response: {response}")
+        return False
+    if '-32700' not in response:  # Parse error code (without quotes)
+        print("❌ Wrong error code for malformed JSON")
+        print(f"Actual response: {response}")
+        return False
+        
+    print("✅ Malformed JSON handled correctly")
+    
+    # Initialize server for next test
+    init_request = '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05"}}'
+    transport._process_message(init_request)
+    
+    # Test invalid method
+    invalid_method = '{"jsonrpc":"2.0","method":"nonexistent","id":"5","params":{}}'
+    
+    response = transport._process_message(invalid_method)
+    
+    # Verify method not found error
+    if '"error"' not in response:
+        print("❌ Missing error field for invalid method")
+        return False
+    if '-32601' not in response:  # Method not found code (without quotes)
+        print("❌ Wrong error code for invalid method")
+        return False
+        
+    print("✅ Invalid method handled correctly")
+    return True
+
+def test_notification_handling():
+    """Test notification message handling."""
+    print("Testing notification handling...")
+    
+    transport = MCPStdioTransport()
+    
+    # Test initialized notification
+    init_notification = '{"jsonrpc":"2.0","method":"initialized","params":{}}'
+    
+    response = transport._process_message(init_notification)
+    
+    # Notifications should return empty string (no response)
+    if response != "":
+        print("❌ Notification should not return response")
+        return False
+        
+    print("✅ Notification handled correctly")
+    return True
+
+def test_line_delimited_processing():
+    """Test processing of multiple line-delimited messages."""
+    print("Testing line-delimited message processing...")
+    
+    transport = MCPStdioTransport()
+    
+    # Simulate multiple messages including initialization
+    messages = [
+        '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05"}}',
+        '{"jsonrpc":"2.0","method":"tools/list","id":"2","params":{}}',
+        '{"jsonrpc":"2.0","method":"tools/call","id":"3","params":{"name":"weather","arguments":{"city":"New York"}}}'
+    ]
+    
+    responses = []
+    for message in messages:
+        response = transport._process_message(message)
+        responses.append(response)
+    
+    # Verify all responses are valid
+    for i, response in enumerate(responses):
+        if not response or '"jsonrpc":"2.0"' not in response:
+            print(f"❌ Invalid response for message {i+1}")
+            print(f"Response: {response}")
+            return False
+    
+    print("✅ Line-delimited processing works correctly")
+    return True
+
+def test_concurrent_tool_calls():
+    """Test handling multiple tool calls with different IDs."""
+    print("Testing concurrent tool calls...")
+    
+    transport = MCPStdioTransport()
+    
+    # Initialize first
+    init_request = '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05"}}'
+    transport._process_message(init_request)
+    
+    # Multiple tool calls with different IDs
+    weather_call = '{"jsonrpc":"2.0","method":"tools/call","id":"weather-1","params":{"name":"weather","arguments":{"city":"London"}}}'
+    calc_call = '{"jsonrpc":"2.0","method":"tools/call","id":"calc-1","params":{"name":"calculate","arguments":{"expression":"6*7"}}}'
+    
+    weather_response = transport._process_message(weather_call)
+    calc_response = transport._process_message(calc_call)
+    
+    # Verify responses have correct IDs
+    if '"id":"weather-1"' not in weather_response:
+        print("❌ Weather response has wrong ID")
+        print(f"Response: {weather_response}")
+        return False
+    if '"id":"calc-1"' not in calc_response:
+        print("❌ Calculator response has wrong ID")
+        print(f"Response: {calc_response}")
+        return False
+    
+    # Verify correct tool results (check for city name, not exact message since it includes demo text)
+    if 'London' not in weather_response:
+        print("❌ Weather response has wrong content")
+        print(f"Response: {weather_response}")
+        return False
+    if '42' not in calc_response:  # 6 * 7 = 42
+        print("❌ Calculator response has wrong result")
+        print(f"Response: {calc_response}")
+        return False
+    
+    print("✅ Concurrent tool calls handled correctly")
+    return True
+
+def run_stdio_transport_tests():
+    """Run all stdio transport tests."""
+    print("🧪 Starting MCP stdio Transport Tests")
+    print("=" * 50)
+    
+    passed = 0
+    total = 7
+    
+    # Run each test individually
+    try:
+        if test_message_processing():
+            passed += 1
+    except Exception as e:
+        print(f"❌ test_message_processing error: {e}")
+    
+    try:
+        if test_tools_list():
+            passed += 1
+    except Exception as e:
+        print(f"❌ test_tools_list error: {e}")
+    
+    try:
+        if test_tool_call():
+            passed += 1
+    except Exception as e:
+        print(f"❌ test_tool_call error: {e}")
+    
+    try:
+        if test_error_handling():
+            passed += 1
+    except Exception as e:
+        print(f"❌ test_error_handling error: {e}")
+    
+    try:
+        if test_notification_handling():
+            passed += 1
+    except Exception as e:
+        print(f"❌ test_notification_handling error: {e}")
+    
+    try:
+        if test_line_delimited_processing():
+            passed += 1
+    except Exception as e:
+        print(f"❌ test_line_delimited_processing error: {e}")
+    
+    try:
+        if test_concurrent_tool_calls():
+            passed += 1
+    except Exception as e:
+        print(f"❌ test_concurrent_tool_calls error: {e}")
+    
+    print("=" * 50)
+    print(f"📊 Test Results: {passed}/{total} tests passed")
+    
+    if passed == total:
+        print("🎉 All stdio Transport tests passed! ✅")
+        print("🚀 MCP stdio transport is ready for integration!")
+    else:
+        print(f"❌ {total - passed} tests failed")
+        return False
+    
+    return True
+
+# Run tests if this file is executed directly
+if __name__ == "__main__":
+    success = run_stdio_transport_tests()
+    if not success:
+        sys.exit(1)

@@ -1,0 +1,11 @@
+from conduit.mcp import parse_jsonrpc_message
+
+def test_malformed():
+    malformed = '{"jsonrpc":"2.0","method":}'
+    print(f"Testing malformed JSON: {malformed}")
+    result = parse_jsonrpc_message(malformed)
+    print(f"Result: {result}")
+    print(f"Is invalid: {result == 'invalid'}")
+
+if __name__ == "__main__":
+    test_malformed()

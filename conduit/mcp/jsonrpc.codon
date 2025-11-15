@@ -1,8 +1,12 @@
+# JSON-RPC 2.0 Implementation for Conduit MCP
+# Based on specification: https://www.jsonrpc.org/specification
+
 class JSONRPCRequest:
+    """JSON-RPC 2.0 Request message"""
     jsonrpc: str
     method: str
     id: str
-    params: str
+    params: str  # JSON string representation
     
     def __init__(self, method: str, id: str, params: str = "{}"):
         self.jsonrpc = "2.0"
@@ -18,10 +22,29 @@ class JSONRPCRequest:
         return result
 
 
+class JSONRPCNotification:
+    """JSON-RPC 2.0 Notification message (no id, no response expected)"""
+    jsonrpc: str
+    method: str
+    params: str  # JSON string representation
+    
+    def __init__(self, method: str, params: str = "{}"):
+        self.jsonrpc = "2.0"
+        self.method = method
+        self.params = params
+    
+    def to_json(self) -> str:
+        result = '{"jsonrpc":"' + self.jsonrpc + '"'
+        result += ',"method":"' + self.method + '"'
+        result += ',"params":' + self.params + '}'
+        return result
+
+
 class JSONRPCResponse:
+    """JSON-RPC 2.0 Success Response message"""
     jsonrpc: str
     id: str
-    result: str
+    result: str  # JSON string representation
     
     def __init__(self, id: str, result: str):
         self.jsonrpc = "2.0"
@@ -36,27 +59,223 @@ class JSONRPCResponse:
 
 
 class JSONRPCError:
+    """JSON-RPC 2.0 Error Response message"""
     jsonrpc: str
     id: str
     code: int
     message: str
+    data: str  # Optional additional error data
     
-    def __init__(self, id: str, code: int, message: str):
+    def __init__(self, id: str, code: int, message: str, data: str = ""):
         self.jsonrpc = "2.0"
         self.id = id
         self.code = code
         self.message = message
+        self.data = data
     
     def to_json(self) -> str:
         msg = '{"jsonrpc":"' + self.jsonrpc + '"'
         msg += ',"id":"' + self.id + '"'
         msg += ',"error":{"code":' + str(self.code)
-        msg += ',"message":"' + self.message + '"}}'
+        msg += ',"message":"' + self.message + '"'
+        if self.data != "":
+            msg += ',"data":' + self.data
+        msg += '}}'
         return msg
 
 
-ERROR_PARSE = -32700
-ERROR_INVALID_REQUEST = -32600
-ERROR_METHOD_NOT_FOUND = -32601
-ERROR_INVALID_PARAMS = -32602
-ERROR_INTERNAL = -32603
+# Standard JSON-RPC 2.0 Error Codes
+ERROR_PARSE = -32700           # Parse error - Invalid JSON received
+ERROR_INVALID_REQUEST = -32600 # Invalid Request - JSON-RPC format error  
+ERROR_METHOD_NOT_FOUND = -32601 # Method not found - Requested method doesn't exist
+ERROR_INVALID_PARAMS = -32602  # Invalid params - Invalid method parameters
+ERROR_INTERNAL = -32603        # Internal error - Server-side processing error
+
+
+# JSON-RPC 2.0 Message Parsing Functions
+
+def parse_jsonrpc_message(message: str) -> str:
+    """
+    Parse a JSON-RPC 2.0 message and return the type.
+    Returns: "request", "notification", "response", "error", or "invalid"
+    """
+    try:
+        # Basic JSON validation - in real implementation would use proper JSON parser
+        if not message.strip():
+            return "invalid"
+        
+        # Basic JSON syntax validation
+        msg = message.strip()
+        if not (msg.startswith('{') and msg.endswith('}')):
+            return "invalid"
+        
+        # Check for basic JSON syntax issues
+        # Count quotes to detect malformed strings
+        quote_count = 0
+        in_string = False
+        escaped = False
+        for char in msg:
+            if char == '"' and not escaped:
+                quote_count += 1
+                in_string = not in_string
+            elif char == '\\' and in_string:
+                escaped = not escaped
+            else:
+                escaped = False
+        
+        # Quotes should be even (every opening quote has a closing quote)
+        if quote_count % 2 != 0:
+            return "invalid"
+        
+        # Check for trailing commas or colons (basic syntax errors)
+        if msg.endswith(',}') or msg.endswith(':}'):
+            return "invalid"
+        
+        # Check for required jsonrpc field
+        if '"jsonrpc":"2.0"' not in message:
+            return "invalid"
+        
+        # Check message type by presence of fields
+        has_id = '"id":' in message
+        has_method = '"method":' in message
+        has_result = '"result":' in message
+        has_error = '"error":' in message
+        
+        if has_method and has_id:
+            return "request"
+        elif has_method and not has_id:
+            return "notification"
+        elif has_result and has_id:
+            return "response"
+        elif has_error and has_id:
+            return "error"
+        else:
+            return "invalid"
+            
+    except Exception:
+        return "invalid"
+
+
+def extract_field(message: str, field: str) -> str:
+    """
+    Extract a field value from JSON message.
+    Simple string-based extraction for v1.0 - would use proper JSON parser later.
+    """
+    start_pattern = '"' + field + '":'
+    start_pos = message.find(start_pattern)
+    if start_pos == -1:
+        return ""
+    
+    value_start = start_pos + len(start_pattern)
+    
+    # Handle string values (quoted)
+    if value_start < len(message) and message[value_start] == '"':
+        quote_start = value_start + 1
+        quote_end = message.find('"', quote_start)
+        if quote_end != -1:
+            return message[quote_start:quote_end]
+    
+    # Handle numeric values (unquoted)
+    elif value_start < len(message) and (message[value_start].isdigit() or message[value_start] == '-'):
+        num_end = value_start
+        while num_end < len(message) and (message[num_end].isdigit() or message[num_end] == '-' or message[num_end] == '.'):
+            num_end += 1
+        return message[value_start:num_end]
+    
+    # Handle object/array values (find matching brace/bracket)
+    elif value_start < len(message) and (message[value_start] == '{' or message[value_start] == '['):
+        brace_count = 0
+        bracket_count = 0
+        end_pos = value_start
+        
+        while end_pos < len(message):
+            char = message[end_pos]
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+            elif char == '[':
+                bracket_count += 1
+            elif char == ']':
+                bracket_count -= 1
+            
+            end_pos += 1
+            
+            # If we've closed all braces/brackets and hit a delimiter, we're done
+            if brace_count == 0 and bracket_count == 0:
+                if end_pos >= len(message) or message[end_pos] in ',}]':
+                    return message[value_start:end_pos]
+        
+        return message[value_start:end_pos]
+    
+    return ""
+
+
+def create_response(id: str, result: str) -> str:
+    """Create a JSON-RPC 2.0 success response"""
+    response = JSONRPCResponse(id, result)
+    return response.to_json()
+
+
+def create_error_response(id: str, code: int, message: str, data: str = "") -> str:
+    """Create a JSON-RPC 2.0 error response"""
+    error = JSONRPCError(id, code, message, data)
+    return error.to_json()
+
+
+def create_notification(method: str, params: str = "{}") -> str:
+    """Create a JSON-RPC 2.0 notification"""
+    notification = JSONRPCNotification(method, params)
+    return notification.to_json()
+
+
+def validate_jsonrpc_request(message: str) -> tuple[bool, str]:
+    """
+    Validate a JSON-RPC 2.0 request message.
+    Returns: (is_valid, error_message)
+    """
+    # First check basic JSON structure
+    if not message.strip():
+        return (False, "Empty message")
+    
+    # Check for required jsonrpc field
+    if '"jsonrpc":"2.0"' not in message:
+        return (False, "Missing or invalid 'jsonrpc' field")
+    
+    # Check for method field (required for requests and notifications)
+    method = extract_field(message, "method")
+    if method == "":
+        return (False, "Missing required 'method' field")
+    
+    # Determine message type
+    msg_type = parse_jsonrpc_message(message)
+    
+    if msg_type == "invalid":
+        return (False, "Invalid JSON-RPC 2.0 format")
+    
+    if msg_type not in ["request", "notification"]:
+        return (False, "Expected request or notification message")
+    
+    if msg_type == "request":
+        id_field = extract_field(message, "id")
+        if id_field == "":
+            return (False, "Missing required 'id' field for request")
+    
+    return (True, "")
+
+
+# Error message helpers
+def get_error_message(code: int) -> str:
+    """Get standard error message for JSON-RPC error codes"""
+    if code == ERROR_PARSE:
+        return "Parse error"
+    elif code == ERROR_INVALID_REQUEST:
+        return "Invalid Request"
+    elif code == ERROR_METHOD_NOT_FOUND:
+        return "Method not found"
+    elif code == ERROR_INVALID_PARAMS:
+        return "Invalid params"
+    elif code == ERROR_INTERNAL:
+        return "Internal error"
+    else:
+        return "Unknown error"

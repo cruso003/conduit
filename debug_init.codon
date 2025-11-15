@@ -1,0 +1,20 @@
+# Debug the initialize response
+
+from conduit.mcp.protocol_working import MCPServer
+from conduit.mcp.jsonrpc import JSONRPCRequest
+
+def debug_initialize():
+    server = MCPServer()
+    print("Server initialized: " + str(server.initialized))
+    
+    init_request = JSONRPCRequest("initialize", "1", '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"TestClient","version":"1.0.0"}}')
+    response = server.handle_request(init_request)
+    
+    print("After request - Server initialized: " + str(server.initialized))
+    print("Response result: " + response.result)
+    print("Response contains protocolVersion: " + str('"protocolVersion"' in response.result))
+    print("Response contains capabilities: " + str('"capabilities"' in response.result))
+    print("Response contains serverInfo: " + str('"serverInfo"' in response.result))
+
+if __name__ == "__main__":
+    debug_initialize()

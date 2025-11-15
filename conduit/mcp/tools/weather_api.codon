@@ -1,0 +1,361 @@
+# Enhanced Weather Tool for MCP
+# Provides comprehensive weather information with API integration support
+
+import time
+
+class WeatherAPI:
+    """
+    Enhanced weather tool with multiple data sources and comprehensive information.
+    
+    Provides current weather, forecasts, weather alerts, and historical data
+    with proper error handling and fallback mechanisms.
+    """
+    
+    def __init__(self, api_key: str = ""):
+        """
+        Initialize weather API tool.
+        
+        Args:
+            api_key: API key for weather service (if using real API)
+        """
+        self.api_key = api_key
+        self.base_url = "https://api.openweathermap.org/data/2.5"
+        
+        # Cache for rate limiting and efficiency
+        self.cache = {}
+        self.cache_duration = 600  # 10 minutes
+        
+        # Demo weather data for testing
+        self.demo_weather_data = {
+            "san francisco": {
+                "temperature": 72.0,
+                "humidity": 65.0,
+                "pressure": 1013.25,
+                "wind_speed": 8.5,
+                "wind_direction": 245.0,
+                "visibility": 10.0,
+                "uv_index": 6.0,
+                "condition": "Partly Cloudy",
+                "feels_like": 74.0,
+                "dew_point": 58.0
+            },
+            "new york": {
+                "temperature": 68.0,
+                "humidity": 70.0,
+                "pressure": 1015.3,
+                "wind_speed": 12.0,
+                "wind_direction": 180.0,
+                "visibility": 15.0,
+                "uv_index": 4.0,
+                "condition": "Overcast",
+                "feels_like": 65.0,
+                "dew_point": 60.0
+            },
+            "london": {
+                "temperature": 59.0,
+                "humidity": 80.0,
+                "pressure": 1008.7,
+                "wind_speed": 15.2,
+                "wind_direction": 225.0,
+                "visibility": 8.0,
+                "uv_index": 2.0,
+                "condition": "Light Rain",
+                "feels_like": 55.0,
+                "dew_point": 54.0
+            },
+            "tokyo": {
+                "temperature": 75.0,
+                "humidity": 75.0,
+                "pressure": 1018.1,
+                "wind_speed": 6.8,
+                "wind_direction": 90.0,
+                "visibility": 12.0,
+                "uv_index": 7.0,
+                "condition": "Sunny",
+                "feels_like": 78.0,
+                "dew_point": 65.0
+            }
+        }
+    
+    def _get_cache_key(self, city: str, data_type: str) -> str:
+        """Generate cache key for weather data."""
+        return f"{city.lower()}_{data_type}"
+    
+    def _is_cache_valid(self, cache_key: str) -> bool:
+        """Check if cached data is still valid."""
+        if cache_key not in self.cache:
+            return False
+        
+        cached_time = self.cache[cache_key].get('timestamp', 0)
+        return (time.time() - cached_time) < self.cache_duration
+    
+    def get_current_weather(self, city: str, units: str = "metric") -> str:
+        """
+        Get current weather for a city.
+        
+        Args:
+            city: City name
+            units: Temperature units (metric, imperial, kelvin)
+            
+        Returns:
+            JSON string with current weather data
+        """
+        try:
+            cache_key = self._get_cache_key(city, "current")
+            
+            # Check cache first
+            if self._is_cache_valid(cache_key):
+                cached_data = self.cache[cache_key]['data']
+                return '{"success": true, "cached": true, "data": ' + cached_data + '}'
+            
+            # Get weather data (demo implementation)
+            weather_data = self._fetch_weather_data(city, units)
+            
+            if weather_data is None:
+                return '{"error": "City not found or weather data unavailable", "city": "' + city + '"}'
+            
+            # Cache the result
+            self.cache[cache_key] = {
+                'timestamp': time.time(),
+                'data': weather_data
+            }
+            
+            return '{"success": true, "cached": false, "data": ' + weather_data + '}'
+            
+        except Exception as e:
+            return '{"error": "Weather fetch failed", "message": "' + str(e) + '"}'
+    
+    def _fetch_weather_data(self, city: str, units: str) -> str:
+        """
+        Fetch weather data for a city.
+        This is a demo implementation using static data.
+        """
+        city_key = city.lower()
+        
+        if city_key not in self.demo_weather_data:
+            return None
+        
+        data = self.demo_weather_data[city_key]
+        
+        # Convert temperature based on units
+        temp = data["temperature"]
+        feels_like = data["feels_like"]
+        
+        if units == "imperial":
+            temp = temp * 9/5 + 32
+            feels_like = feels_like * 9/5 + 32
+            temp_unit = "°F"
+        elif units == "kelvin":
+            temp = temp + 273.15
+            feels_like = feels_like + 273.15
+            temp_unit = "K"
+        else:  # metric
+            temp_unit = "°C"
+        
+        # Build JSON response
+        weather_json = '{'
+        weather_json += '"city": "' + city.title() + '",'
+        weather_json += '"temperature": ' + str(round(temp, 1)) + ','
+        weather_json += '"temperature_unit": "' + temp_unit + '",'
+        weather_json += '"feels_like": ' + str(round(feels_like, 1)) + ','
+        weather_json += '"condition": "' + data["condition"] + '",'
+        weather_json += '"humidity": ' + str(data["humidity"]) + ','
+        weather_json += '"pressure": ' + str(data["pressure"]) + ','
+        weather_json += '"wind_speed": ' + str(data["wind_speed"]) + ','
+        weather_json += '"wind_direction": ' + str(data["wind_direction"]) + ','
+        weather_json += '"visibility": ' + str(data["visibility"]) + ','
+        weather_json += '"uv_index": ' + str(data["uv_index"]) + ','
+        weather_json += '"dew_point": ' + str(data["dew_point"]) + ','
+        weather_json += '"timestamp": ' + str(int(time.time()))
+        weather_json += '}'
+        
+        return weather_json
+    
+    def get_forecast(self, city: str, days: int = 5, units: str = "metric") -> str:
+        """
+        Get weather forecast for a city.
+        
+        Args:
+            city: City name
+            days: Number of days (1-7)
+            units: Temperature units
+            
+        Returns:
+            JSON string with forecast data
+        """
+        try:
+            if days < 1 or days > 7:
+                return '{"error": "Days must be between 1 and 7", "requested": ' + str(days) + '}'
+            
+            city_key = city.lower()
+            if city_key not in self.demo_weather_data:
+                return '{"error": "City not found", "city": "' + city + '"}'
+            
+            # Generate demo forecast data
+            base_data = self.demo_weather_data[city_key]
+            forecast_data = []
+            
+            for day in range(days):
+                # Simulate temperature variation
+                temp_variation = (-5 + day * 2) if day < 3 else (5 - day)
+                temp = base_data["temperature"] + temp_variation
+                
+                # Convert units
+                if units == "imperial":
+                    temp = temp * 9/5 + 32
+                    temp_unit = "°F"
+                elif units == "kelvin":
+                    temp = temp + 273.15
+                    temp_unit = "K"
+                else:
+                    temp_unit = "°C"
+                
+                # Vary conditions
+                conditions = ["Sunny", "Partly Cloudy", "Cloudy", "Light Rain", "Clear"]
+                condition = conditions[day % len(conditions)]
+                
+                day_data = '{'
+                day_data += '"day": ' + str(day + 1) + ','
+                day_data += '"date": "' + time.strftime('%Y-%m-%d', time.localtime(time.time() + day * 86400)) + '",'
+                day_data += '"temperature_high": ' + str(round(temp + 3, 1)) + ','
+                day_data += '"temperature_low": ' + str(round(temp - 5, 1)) + ','
+                day_data += '"temperature_unit": "' + temp_unit + '",'
+                day_data += '"condition": "' + condition + '",'
+                day_data += '"humidity": ' + str(base_data["humidity"] + day * 2) + ','
+                day_data += '"wind_speed": ' + str(base_data["wind_speed"] + day * 0.5) + ''
+                day_data += '}'
+                
+                forecast_data.append(day_data)
+            
+            forecast_json = '[' + ', '.join(forecast_data) + ']'
+            
+            return '{"success": true, "city": "' + city.title() + '", "days": ' + str(days) + ', "forecast": ' + forecast_json + '}'
+            
+        except Exception as e:
+            return '{"error": "Forecast fetch failed", "message": "' + str(e) + '"}'
+    
+    def get_weather_alerts(self, city: str) -> str:
+        """
+        Get weather alerts for a city.
+        
+        Args:
+            city: City name
+            
+        Returns:
+            JSON string with weather alerts
+        """
+        try:
+            # Demo alert data
+            demo_alerts = {
+                "miami": [
+                    {
+                        "type": "Hurricane Watch",
+                        "severity": "high",
+                        "description": "Hurricane conditions possible within 48 hours",
+                        "start_time": "2025-11-07T12:00:00Z",
+                        "end_time": "2025-11-09T12:00:00Z"
+                    }
+                ],
+                "chicago": [
+                    {
+                        "type": "Winter Storm Warning",
+                        "severity": "medium",
+                        "description": "Heavy snow expected, 6-10 inches possible",
+                        "start_time": "2025-11-07T18:00:00Z",
+                        "end_time": "2025-11-08T06:00:00Z"
+                    }
+                ]
+            }
+            
+            city_key = city.lower()
+            alerts = demo_alerts.get(city_key, [])
+            
+            # Format alerts as JSON
+            alert_strings = []
+            for alert in alerts:
+                alert_json = '{'
+                alert_json += '"type": "' + alert["type"] + '",'
+                alert_json += '"severity": "' + alert["severity"] + '",'
+                alert_json += '"description": "' + alert["description"] + '",'
+                alert_json += '"start_time": "' + alert["start_time"] + '",'
+                alert_json += '"end_time": "' + alert["end_time"] + '"'
+                alert_json += '}'
+                alert_strings.append(alert_json)
+            
+            alerts_json = '[' + ', '.join(alert_strings) + ']'
+            
+            return '{"success": true, "city": "' + city.title() + '", "alerts": ' + alerts_json + ', "count": ' + str(len(alerts)) + '}'
+            
+        except Exception as e:
+            return '{"error": "Weather alerts fetch failed", "message": "' + str(e) + '"}'
+
+def create_weather_api_tool() -> WeatherAPI:
+    """Create a configured weather API tool instance."""
+    return WeatherAPI()
+
+# Tool registration functions for MCP integration
+def get_weather_api_tools_schema() -> str:
+    """Get JSON schema for weather API tools."""
+    return '''[
+        {
+            "name": "get_current_weather",
+            "description": "Get current weather conditions for a city",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "City name to get weather for"
+                    },
+                    "units": {
+                        "type": "string",
+                        "description": "Temperature units",
+                        "enum": ["metric", "imperial", "kelvin"],
+                        "default": "metric"
+                    }
+                },
+                "required": ["city"]
+            }
+        },
+        {
+            "name": "get_forecast",
+            "description": "Get weather forecast for a city",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "City name to get forecast for"
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days to forecast (1-7)",
+                        "minimum": 1,
+                        "maximum": 7,
+                        "default": 5
+                    },
+                    "units": {
+                        "type": "string",
+                        "description": "Temperature units",
+                        "enum": ["metric", "imperial", "kelvin"],
+                        "default": "metric"
+                    }
+                },
+                "required": ["city"]
+            }
+        },
+        {
+            "name": "get_weather_alerts",
+            "description": "Get weather alerts and warnings for a city",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "City name to get alerts for"
+                    }
+                },
+                "required": ["city"]
+            }
+        }
+    ]'''

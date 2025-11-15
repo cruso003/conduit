@@ -1,0 +1,31 @@
+#!/usr/bin/env codon
+# Simple MCP server example using stdio transport
+# This is a working MCP server that can communicate with MCP clients via stdin/stdout
+
+from conduit.mcp.transport import MCPStdioTransport
+
+def main():
+    """
+    Run a simple MCP server with weather and calculator tools.
+    
+    This server communicates via stdin/stdout using line-delimited JSON
+    according to the MCP specification.
+    
+    Example usage:
+        # Run directly
+        codon run examples/simple_mcp_server.codon
+        
+        # Or use with an MCP client
+        echo '{"jsonrpc":"2.0","method":"initialize","id":"1","params":{"protocolVersion":"2024-11-05"}}' | codon run examples/simple_mcp_server.codon
+    """
+    try:
+        # Create and start the stdio transport server
+        transport = MCPStdioTransport()
+        transport.start_server()
+    except Exception as e:
+        import sys
+        print(f"[MCP] Fatal error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

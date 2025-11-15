@@ -469,20 +469,244 @@ Conduit development follows a phased approach:
 
 ---
 
+## 🔮 Future Phases (v1.1 - v2.0)
+
+### v1.1: Model Context Protocol (MCP) - **Priority 1** 🚀
+
+**Timeline**: Weeks 13-15 (December 2025)  
+**Strategic Value**: Key differentiator - first compile-time optimized MCP framework  
+**Status**: 📋 Planned (see `docs/PRIORITY_PLAN_WEEK_13.md`)
+
+**Goals**:
+
+- Implement production-ready MCP server support
+- stdio + SSE transports
+- Sub-10ms response latency (10x faster than Python)
+- Prove "10x faster, 1/10th the cost" value proposition
+
+**Features**:
+
+- `@mcp.tool()` decorator for tool registration
+- JSON-RPC 2.0 protocol implementation
+- Automatic tool schema generation
+- Built-in observability and monitoring
+- Example MCP servers (filesystem, database, GitHub)
+
+**Success Criteria**:
+
+- ✅ Sub-10ms p99 latency
+- ✅ 8,000+ requests/second (single server)
+- ✅ 1,000+ concurrent AI agents supported
+- ✅ 90% lower infrastructure costs vs Python
+- ✅ Production examples and documentation
+
+**Why This Matters**:
+
+- MCP ecosystem growing rapidly (Anthropic backing)
+- Conduit's compile-time optimization = perfect for MCP
+- First-mover advantage in production-grade MCP frameworks
+- Unique positioning in AI infrastructure market
+
+---
+
+### v1.2: Path Parameters - **Priority 2** ⚡
+
+**Timeline**: Weeks 16-18 (January-February 2026)  
+**Strategic Value**: Table stakes for REST API adoption  
+**Status**: 📋 Designed (see `docs/technical/PATH_PARAMETERS_IMPLEMENTATION_PLAN.md`)
+
+**Implementation**: Compile-time radix tree generation (unique approach!)
+
+**Features**:
+
+- Named parameters: `/users/:id`
+- Multiple parameters: `/users/:id/posts/:post_id`
+- Wildcard routes: `/files/*path`
+- Compile-time route conflict detection
+- Sub-500ns parameter extraction
+
+**Success Criteria**:
+
+- ✅ < 500ns/op for 5 parameters (competitive with Go's httprouter)
+- ✅ Beat Python frameworks by 200x
+- ✅ Zero runtime tree construction overhead
+- ✅ Compile-time route conflict warnings
+
+**Why This Matters**:
+
+- Essential for REST APIs (can't grow without this)
+- Opportunity to do something NO framework does (compile-time radix tree)
+- Performance story gets even better
+
+---
+
+### v1.3: Benchmarks & Production Features - **Priority 3** 🛠️
+
+**Timeline**: Months 4-6 (February-April 2026)  
+**Focus**: Prove performance claims, enterprise readiness
+
+**Benchmarking**:
+
+- Comprehensive comparison vs FastAPI, Flask, Gin, Actix
+- Real workflow benchmarks (code review agent, data analysis)
+- Cost analysis at different scales
+- Publish results at `conduit.dev/benchmarks`
+
+**Production Features**:
+
+- Enhanced middleware (authentication, rate limiting)
+- WebSocket support
+- Advanced monitoring/tracing
+- Database connection pooling
+- Request validation
+
+**Conduit Cloud Beta** (Invite-Only):
+
+- Test deployment automation with 20-50 early customers
+- Validate pricing model ($99-299/month)
+- Gather feedback on deployment experience
+- Prove unit economics before scaling
+- Build support processes and documentation
+
+**Success Criteria**:
+
+- ✅ 500+ production self-hosted users
+- ✅ Published benchmarks showing 10-200x advantages
+- ✅ 20-50 cloud beta customers
+- ✅ $2K-5K MRR (validation, not profit)
+- ✅ < 5 minute deploy time
+- ✅ Positive NPS score
+
+---
+
+### v2.0: Advanced Optimizations & Cloud Launch - **Year 2** 🎯
+
+**Timeline**: Months 6-12 (April-October 2026)  
+**Focus**: Scale framework and business
+
+**Plugin Phase 2** (Weeks 7-10 from original plan):
+
+- Trie-based routing (2-3x additional speedup)
+- Compile-time query parameter analysis
+- Route conflict detection
+- Static analysis & optimization hints
+
+**Enterprise Features**:
+
+- SOC2 compliance
+- On-premises deployment options
+- Advanced security features
+- Professional services offering
+- Dedicated support contracts
+
+**Conduit Cloud Public Launch**:
+
+- Open to all developers
+- Automated infrastructure (no manual work)
+- Multiple pricing tiers ($0 open source → $999/month)
+- 99.9% SLA guarantee
+- 24/7 support for paid tiers
+
+**Success Criteria**:
+
+- ✅ 4-6x total speedup vs baseline (2x × 2-3x)
+- ✅ 1,000+ production deployments
+- ✅ 100+ cloud customers
+- ✅ $25K-100K MRR
+- ✅ SOC2 certified
+- ✅ Conference talks/recognition
+
+**Why Wait for Cloud Public Launch**:
+
+1. Framework must be battle-tested first (need 500+ users)
+2. Infrastructure costs require revenue to cover
+3. Support team needs to be hired and trained
+4. Beta feedback should inform final product
+5. Focus on framework excellence before distraction of cloud ops
+
+---
+
+## Strategic Reasoning: Cloud in Roadmap
+
+### Why Include Cloud Now?
+
+**1. Developer Expectations**
+
+- Modern frameworks offer deployment solutions (Railway, Render, Fly.io prove this)
+- "How do I deploy this?" is the #1 question after "How does it work?"
+- Shows long-term commitment to developer experience
+
+**2. Business Sustainability**
+
+- Open source alone = $0 revenue (can't sustain development)
+- Cloud = recurring revenue = can hire team, build faster
+- Validates there's a business, not just a project
+
+**3. Competitive Positioning**
+
+- Having cloud in roadmap shows we're serious
+- Competes with "deploy anywhere" messaging from others
+- Developer mindshare: "They're thinking about the whole journey"
+
+### Why NOT Launch Cloud Yet?
+
+**1. Framework First**
+
+- Must prove framework works (need 500+ users)
+- Need to fix bugs, add features based on real usage
+- Cloud = distraction from core product in Year 1
+
+**2. Economics**
+
+- Infrastructure costs upfront ($10K-50K for auto-scaling)
+- Support requirements (24/7 coverage)
+- Only 50-100 early adopters won't cover costs
+
+**3. Focus**
+
+- Better to do one thing great (framework) than two things mediocre
+- Cloud requires dedicated team (billing, support, ops)
+- Year 1 = prove technical superiority, Year 2 = build business
+
+### The Right Approach
+
+**v1.0-1.3 (Months 1-6): Framework Excellence**
+
+```
+- MCP implementation
+- Path parameters
+- Benchmarks
+- Cloud Beta (20-50 invite-only customers)
+- Goal: Prove framework + test cloud offering
+```
+
+**v2.0+ (Months 6-12): Business Scale**
+
+```
+- Cloud public launch
+- Enterprise features
+- SOC2 compliance
+- Goal: Scale cloud to $25K-100K MRR
+```
+
+---
+
 ## Next Actions
 
-1. **Start Framework Integration Phase** (this week)
-2. Validate plugin in real application (week 2)
-3. Measure production performance (week 3)
-4. **THEN** return to Plugin Phase 2 (Weeks 7-10)
+1. **✅ v1.0 Complete** - Framework, auto-docs, middleware shipped
+2. **Week 13-15**: MCP implementation (Priority 1)
+3. **Week 16**: Benchmarks (prove performance claims)
+4. **Week 17**: Public launch prep (landing page, docs, content)
+5. **Week 18**: Launch (HN, Reddit, Product Hunt)
+6. **Weeks 19-24**: Community building, cloud beta invites
 
 ---
 
-**🎯 Goal**: Build the fastest web framework for AI/ML workloads, one optimization at a time.
+**🎯 Goal**: Build the fastest MCP framework, prove it with benchmarks, then scale the business with Conduit Cloud.
 
-**📊 Progress**: Plugin Phase 1 ✅ Complete → Framework Integration 🚧 Next → Plugin Phase 2 ⏸️ Ready
+**📊 Progress**: v1.0 ✅ Complete → v1.1 MCP 🚧 Next (Week 13) → v1.2 Path Params ⏸️ Ready → v2.0 Cloud 🔮 Future
 
 ---
 
-_Updated: November 1, 2025_  
-_Status: Plugin Phase 1 COMPLETE, Framework Integration NEXT_
+_Updated: November 3, 2025_  
+_Status: v1.0 SHIPPED, MCP Week 13 starts tomorrow_

@@ -1,0 +1,83 @@
+# MCP Integration Demo
+# Demonstrates unified framework with MCP support
+
+# Direct imports for the framework components we need
+import sys
+sys.path.append("./conduit")
+
+from framework.conduit import Conduit
+from http.request import HTTPRequest
+from http.response import HTTPResponse
+
+def main():
+    # Create framework instance
+    app = Conduit()
+    
+    # Enable MCP support
+    app.enable_mcp()
+    
+    # Register regular HTTP routes
+    @app.get("/")
+    def index(request: HTTPRequest):
+        return {"message": "Conduit Framework with MCP Integration", "mcp_enabled": app.mcp_enabled}
+    
+    @app.get("/health")
+    def health(request: HTTPRequest):
+        return {"status": "healthy", "mcp_stats": app.get_mcp_stats()}
+    
+    # Register MCP tools using decorator
+    @app.tool("get_weather", "Get current weather information")
+    def weather_tool():
+        return "Sunny, 72°F in San Francisco"
+    
+    @app.tool("get_time", "Get current time") 
+    def time_tool():
+        import time
+        return f"Current time: {time.ctime()}"
+    
+    @app.tool("system_info", "Get system information")
+    def system_info_tool():
+        import platform
+        return f"Platform: {platform.system()}, Machine: {platform.machine()}"
+    
+    # Add another regular route that shows MCP integration
+    @app.get("/mcp/info")
+    def mcp_info(request: HTTPRequest):
+        stats = app.get_mcp_stats()
+        return {
+            "mcp_endpoint": "/mcp",
+            "tools_registered": stats["tools"],
+            "total_requests": stats["requests"],
+            "token_savings": stats["token_savings"]
+        }
+    
+    # Show available routes
+    print("")
+    print("=" * 60)
+    print("Conduit MCP Integration Demo")  
+    print("=" * 60)
+    print("")
+    print("HTTP Routes:")
+    print("  GET  /           - Main page")
+    print("  GET  /health     - Health check with MCP stats")
+    print("  GET  /mcp/info   - MCP information")
+    print("")
+    print("MCP Protocol:")
+    print("  POST /mcp        - JSON-RPC endpoint")
+    print("")
+    print("MCP Tools:")
+    print("  - get_weather    - Weather information")
+    print("  - get_time       - Current time") 
+    print("  - system_info    - System details")
+    print("")
+    print("To test MCP:")
+    print("curl -X POST http://localhost:8000/mcp \\")
+    print('  -H "Content-Type: application/json" \\')
+    print('  -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'')
+    print("")
+    
+    # Start the server
+    app.run()
+
+if __name__ == "__main__":
+    main()

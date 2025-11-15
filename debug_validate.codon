@@ -1,0 +1,13 @@
+from conduit.mcp.jsonrpc import validate_jsonrpc_request
+
+def debug_validate():
+    # Test the failing case
+    invalid_no_method = '{"jsonrpc":"2.0","id":"1","params":{}}'
+    is_valid, error_msg = validate_jsonrpc_request(invalid_no_method)
+    print(f"Message: {invalid_no_method}")
+    print(f"Is valid: {is_valid}")
+    print(f"Error message: '{error_msg}'")
+    print(f"'method' in error_msg: {'method' in error_msg}")
+
+if __name__ == "__main__":
+    debug_validate()

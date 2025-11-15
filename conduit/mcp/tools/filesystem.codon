@@ -1,0 +1,278 @@
+# File System Operations Tool for MCP
+# Provides safe file operations with sandboxing and validation
+
+import os
+import sys
+
+class FileSystemTool:
+    """
+    Secure file system operations tool for MCP.
+    
+    Provides read, write, list, and basic file operations
+    with safety constraints and path validation.
+    """
+    
+    def __init__(self, allowed_paths: list = None):
+        """
+        Initialize file system tool with allowed paths.
+        
+        Args:
+            allowed_paths: List of allowed directory paths for operations
+                          If None, restricts to current working directory
+        """
+        if allowed_paths is None:
+            # Default to current working directory and subdirectories
+            self.allowed_paths = [os.getcwd()]
+        else:
+            self.allowed_paths = [os.path.abspath(p) for p in allowed_paths]
+        
+        # Security constraints
+        self.max_file_size = 10 * 1024 * 1024  # 10MB limit
+        self.blocked_extensions = {'.exe', '.bin', '.so', '.dll', '.sys'}
+    
+    def _validate_path(self, file_path: str) -> bool:
+        """
+        Validate that file path is within allowed directories.
+        
+        Args:
+            file_path: Path to validate
+            
+        Returns:
+            True if path is allowed, False otherwise
+        """
+        try:
+            abs_path = os.path.abspath(file_path)
+            
+            # Check if path is within any allowed directory
+            for allowed in self.allowed_paths:
+                if abs_path.startswith(allowed):
+                    return True
+            
+            return False
+        except Exception:
+            return False
+    
+    def _check_file_extension(self, file_path: str) -> bool:
+        """Check if file extension is allowed."""
+        ext = os.path.splitext(file_path)[1].lower()
+        return ext not in self.blocked_extensions
+    
+    def read_file(self, file_path: str) -> str:
+        """
+        Read contents of a file.
+        
+        Args:
+            file_path: Path to file to read
+            
+        Returns:
+            JSON string with file contents or error
+        """
+        try:
+            if not self._validate_path(file_path):
+                return '{"error": "Path not allowed", "path": "' + file_path + '"}'
+            
+            if not os.path.exists(file_path):
+                return '{"error": "File not found", "path": "' + file_path + '"}'
+            
+            if not os.path.isfile(file_path):
+                return '{"error": "Not a file", "path": "' + file_path + '"}'
+            
+            # Check file size
+            size = os.path.getsize(file_path)
+            if size > self.max_file_size:
+                return '{"error": "File too large", "size": ' + str(size) + ', "max": ' + str(self.max_file_size) + '}'
+            
+            # Read file content
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Escape content for JSON
+            escaped_content = content.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+            
+            return '{"success": true, "path": "' + file_path + '", "content": "' + escaped_content + '", "size": ' + str(len(content)) + '}'
+            
+        except UnicodeDecodeError:
+            return '{"error": "Binary file or encoding issue", "path": "' + file_path + '"}'
+        except Exception as e:
+            return '{"error": "Read failed", "message": "' + str(e) + '"}'
+    
+    def write_file(self, file_path: str, content: str, mode: str = "w") -> str:
+        """
+        Write content to a file.
+        
+        Args:
+            file_path: Path to file to write
+            content: Content to write
+            mode: Write mode ('w' for overwrite, 'a' for append)
+            
+        Returns:
+            JSON string with result
+        """
+        try:
+            if not self._validate_path(file_path):
+                return '{"error": "Path not allowed", "path": "' + file_path + '"}'
+            
+            if not self._check_file_extension(file_path):
+                return '{"error": "File extension not allowed", "path": "' + file_path + '"}'
+            
+            # Check content size
+            if len(content) > self.max_file_size:
+                return '{"error": "Content too large", "size": ' + str(len(content)) + ', "max": ' + str(self.max_file_size) + '}'
+            
+            # Create directory if it doesn't exist
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory)
+            
+            # Write file
+            with open(file_path, mode, encoding='utf-8') as f:
+                f.write(content)
+            
+            return '{"success": true, "path": "' + file_path + '", "mode": "' + mode + '", "bytes_written": ' + str(len(content)) + '}'
+            
+        except Exception as e:
+            return '{"error": "Write failed", "message": "' + str(e) + '"}'
+    
+    def list_directory(self, dir_path: str = ".") -> str:
+        """
+        List contents of a directory.
+        
+        Args:
+            dir_path: Directory path to list
+            
+        Returns:
+            JSON string with directory contents
+        """
+        try:
+            if not self._validate_path(dir_path):
+                return '{"error": "Path not allowed", "path": "' + dir_path + '"}'
+            
+            if not os.path.exists(dir_path):
+                return '{"error": "Directory not found", "path": "' + dir_path + '"}'
+            
+            if not os.path.isdir(dir_path):
+                return '{"error": "Not a directory", "path": "' + dir_path + '"}'
+            
+            # List directory contents
+            entries = []
+            for item in os.listdir(dir_path):
+                item_path = os.path.join(dir_path, item)
+                is_dir = os.path.isdir(item_path)
+                size = 0 if is_dir else os.path.getsize(item_path)
+                
+                entry = '{"name": "' + item + '", "type": "' + ("directory" if is_dir else "file") + '", "size": ' + str(size) + '}'
+                entries.append(entry)
+            
+            entries_str = "[" + ", ".join(entries) + "]"
+            return '{"success": true, "path": "' + dir_path + '", "entries": ' + entries_str + ', "count": ' + str(len(entries)) + '}'
+            
+        except Exception as e:
+            return '{"error": "List failed", "message": "' + str(e) + '"}'
+    
+    def file_info(self, file_path: str) -> str:
+        """
+        Get information about a file or directory.
+        
+        Args:
+            file_path: Path to examine
+            
+        Returns:
+            JSON string with file information
+        """
+        try:
+            if not self._validate_path(file_path):
+                return '{"error": "Path not allowed", "path": "' + file_path + '"}'
+            
+            if not os.path.exists(file_path):
+                return '{"error": "Path not found", "path": "' + file_path + '"}'
+            
+            is_dir = os.path.isdir(file_path)
+            is_file = os.path.isfile(file_path)
+            size = 0 if is_dir else os.path.getsize(file_path)
+            
+            # Get modification time
+            import time
+            mtime = os.path.getmtime(file_path)
+            mtime_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))
+            
+            return '{"success": true, "path": "' + file_path + '", "type": "' + ("directory" if is_dir else "file") + '", "size": ' + str(size) + ', "modified": "' + mtime_str + '", "readable": ' + str(os.access(file_path, os.R_OK)).lower() + ', "writable": ' + str(os.access(file_path, os.W_OK)).lower() + '}'
+            
+        except Exception as e:
+            return '{"error": "Info failed", "message": "' + str(e) + '"}'
+
+def create_filesystem_tool() -> FileSystemTool:
+    """Create a configured file system tool instance."""
+    return FileSystemTool()
+
+# Tool registration functions for MCP integration
+def get_filesystem_tools_schema() -> str:
+    """Get JSON schema for file system tools."""
+    return '''[
+        {
+            "name": "read_file",
+            "description": "Read the contents of a file",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to read"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        },
+        {
+            "name": "write_file",
+            "description": "Write content to a file",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to write"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to write to the file"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Write mode: 'w' for overwrite, 'a' for append",
+                        "enum": ["w", "a"],
+                        "default": "w"
+                    }
+                },
+                "required": ["file_path", "content"]
+            }
+        },
+        {
+            "name": "list_directory",
+            "description": "List the contents of a directory",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {
+                        "type": "string",
+                        "description": "Path to the directory to list",
+                        "default": "."
+                    }
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "file_info",
+            "description": "Get information about a file or directory",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file or directory"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    ]'''

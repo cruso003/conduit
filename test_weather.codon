@@ -1,0 +1,7 @@
+from conduit.mcp.tools.simple_weather import SimpleWeatherAPI
+
+print("Testing simple weather import...")
+weather = SimpleWeatherAPI()
+result = weather.get_current_weather("San Francisco")
+print(f"Result: {result}")
+print("Simple weather test complete")

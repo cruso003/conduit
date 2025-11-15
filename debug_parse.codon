@@ -1,0 +1,22 @@
+from conduit.mcp import parse_jsonrpc_message
+
+def debug_parse():
+    # Test each message type
+    messages = [
+        ('{"jsonrpc":"2.0","method":"tools/list","id":"1","params":{}}', "request"),
+        ('{"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}', "notification"),
+        ('{"jsonrpc":"2.0","id":"1","result":{"tools":[]}}', "response"),
+        ('{"jsonrpc":"2.0","id":"1","error":{"code":-32601,"message":"Method not found"}}', "error"),
+        ('{"not":"jsonrpc"}', "invalid"),
+        ('', "invalid")
+    ]
+    
+    for msg, expected in messages:
+        result = parse_jsonrpc_message(msg)
+        print(f"Message: {msg[:50]}...")
+        print(f"Expected: {expected}, Got: {result}")
+        print(f"Match: {result == expected}")
+        print("---")
+
+if __name__ == "__main__":
+    debug_parse()

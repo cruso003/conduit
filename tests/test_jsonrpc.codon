@@ -1,0 +1,318 @@
+# Test suite for JSON-RPC 2.0 implementation
+# Tests all message types, parsing, validation, and error handling
+
+from conduit.mcp import JSONRPCRequest, JSONRPCResponse, JSONRPCError, JSONRPCNotification
+from conduit.mcp import ERROR_PARSE, ERROR_INVALID_REQUEST, ERROR_METHOD_NOT_FOUND
+from conduit.mcp import ERROR_INVALID_PARAMS, ERROR_INTERNAL
+from conduit.mcp import parse_jsonrpc_message, extract_field, create_response
+from conduit.mcp import create_error_response, create_notification, validate_jsonrpc_request
+from conduit.mcp import get_error_message
+
+
+def test_jsonrpc_request_creation():
+    """Test JSONRPCRequest creation and serialization"""
+    print("Testing JSONRPCRequest creation...")
+    
+    # Basic request
+    request = JSONRPCRequest("tools/list", "1")
+    json_str = request.to_json()
+    expected = '{"jsonrpc":"2.0","method":"tools/list","id":"1","params":{}}'
+    assert json_str == expected, f"Expected {expected}, got {json_str}"
+    
+    # Request with parameters
+    request_with_params = JSONRPCRequest("tools/call", "2", '{"name":"test","arguments":{"arg1":"value1"}}')
+    json_str = request_with_params.to_json()
+    assert '"method":"tools/call"' in json_str
+    assert '"id":"2"' in json_str
+    assert '"name":"test"' in json_str
+    
+    print("✅ JSONRPCRequest creation tests passed")
+
+
+def test_jsonrpc_notification_creation():
+    """Test JSONRPCNotification creation and serialization"""
+    print("Testing JSONRPCNotification creation...")
+    
+    # Basic notification
+    notification = JSONRPCNotification("notifications/tools/list_changed")
+    json_str = notification.to_json()
+    expected = '{"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}'
+    assert json_str == expected, f"Expected {expected}, got {json_str}"
+    
+    # Notification with parameters
+    notification_with_params = JSONRPCNotification("logging/message", '{"level":"info","data":"Test message"}')
+    json_str = notification_with_params.to_json()
+    assert '"method":"logging/message"' in json_str
+    assert '"level":"info"' in json_str
+    assert '"id"' not in json_str  # Notifications should not have id field
+    
+    print("✅ JSONRPCNotification creation tests passed")
+
+
+def test_jsonrpc_response_creation():
+    """Test JSONRPCResponse creation and serialization"""
+    print("Testing JSONRPCResponse creation...")
+    
+    # Basic response
+    response = JSONRPCResponse("1", '{"tools":[]}')
+    json_str = response.to_json()
+    expected = '{"jsonrpc":"2.0","id":"1","result":{"tools":[]}}'
+    assert json_str == expected, f"Expected {expected}, got {json_str}"
+    
+    # Complex response
+    complex_result = '{"tools":[{"name":"test","description":"Test tool","inputSchema":{"type":"object"}}]}'
+    response = JSONRPCResponse("42", complex_result)
+    json_str = response.to_json()
+    assert '"id":"42"' in json_str
+    assert '"result":' in json_str
+    assert '"name":"test"' in json_str
+    
+    print("✅ JSONRPCResponse creation tests passed")
+
+
+def test_jsonrpc_error_creation():
+    """Test JSONRPCError creation and serialization"""
+    print("Testing JSONRPCError creation...")
+    
+    # Basic error
+    error = JSONRPCError("1", ERROR_METHOD_NOT_FOUND, "Method not found")
+    json_str = error.to_json()
+    expected = '{"jsonrpc":"2.0","id":"1","error":{"code":-32601,"message":"Method not found"}}'
+    assert json_str == expected, f"Expected {expected}, got {json_str}"
+    
+    # Error with additional data
+    error_with_data = JSONRPCError("2", ERROR_INVALID_PARAMS, "Invalid params", '{"missing":["location"]}')
+    json_str = error_with_data.to_json()
+    assert '"code":-32602' in json_str
+    assert '"message":"Invalid params"' in json_str
+    assert '"data":{"missing":["location"]}' in json_str
+    
+    print("✅ JSONRPCError creation tests passed")
+
+
+def test_parse_jsonrpc_message():
+    """Test message type detection"""
+    print("Testing parse_jsonrpc_message...")
+    
+    # Test request detection
+    request_msg = '{"jsonrpc":"2.0","method":"tools/list","id":"1","params":{}}'
+    assert parse_jsonrpc_message(request_msg) == "request"
+    
+    # Test notification detection  
+    notification_msg = '{"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}'
+    assert parse_jsonrpc_message(notification_msg) == "notification"
+    
+    # Test response detection
+    response_msg = '{"jsonrpc":"2.0","id":"1","result":{"tools":[]}}'
+    assert parse_jsonrpc_message(response_msg) == "response"
+    
+    # Test error detection
+    error_msg = '{"jsonrpc":"2.0","id":"1","error":{"code":-32601,"message":"Method not found"}}'
+    assert parse_jsonrpc_message(error_msg) == "error"
+    
+    # Test invalid message detection
+    invalid_msg = '{"not":"jsonrpc"}'
+    assert parse_jsonrpc_message(invalid_msg) == "invalid"
+    
+    # Test empty message
+    assert parse_jsonrpc_message("") == "invalid"
+    
+    # Test malformed JSON
+    assert parse_jsonrpc_message('{"jsonrpc":"2.0","method":}') == "invalid"
+    
+    print("✅ parse_jsonrpc_message tests passed")
+
+
+def test_extract_field():
+    """Test field extraction from JSON messages"""
+    print("Testing extract_field...")
+    
+    message = '{"jsonrpc":"2.0","method":"tools/call","id":"123","params":{"name":"test","arguments":{"location":"SF"}}}'
+    
+    # Test string field extraction
+    assert extract_field(message, "method") == "tools/call"
+    assert extract_field(message, "id") == "123"
+    assert extract_field(message, "jsonrpc") == "2.0"
+    
+    # Test object field extraction
+    params = extract_field(message, "params")
+    assert '"name":"test"' in params
+    assert '"location":"SF"' in params
+    
+    # Test non-existent field
+    assert extract_field(message, "nonexistent") == ""
+    
+    # Test numeric field
+    error_msg = '{"jsonrpc":"2.0","id":"1","error":{"code":-32601,"message":"Not found"}}'
+    assert extract_field(error_msg, "code") == "-32601"
+    
+    print("✅ extract_field tests passed")
+
+
+def test_validate_jsonrpc_request():
+    """Test request validation"""
+    print("Testing validate_jsonrpc_request...")
+    
+    # Valid request
+    valid_request = '{"jsonrpc":"2.0","method":"tools/list","id":"1","params":{}}'
+    is_valid, error_msg = validate_jsonrpc_request(valid_request)
+    assert is_valid == True, f"Expected valid request, got error: {error_msg}"
+    
+    # Valid notification
+    valid_notification = '{"jsonrpc":"2.0","method":"notification","params":{}}'
+    is_valid, error_msg = validate_jsonrpc_request(valid_notification)
+    assert is_valid == True, f"Expected valid notification, got error: {error_msg}"
+    
+    # Invalid: missing method
+    invalid_no_method = '{"jsonrpc":"2.0","id":"1","params":{}}'
+    is_valid, error_msg = validate_jsonrpc_request(invalid_no_method)
+    assert is_valid == False
+    assert "method" in error_msg
+    
+    # Invalid: request missing id
+    invalid_no_id = '{"jsonrpc":"2.0","method":"tools/list","params":{}}'
+    # This should be detected as notification, which is valid
+    is_valid, error_msg = validate_jsonrpc_request(invalid_no_id)
+    assert is_valid == True  # It's a valid notification
+    
+    # Invalid: malformed JSON
+    invalid_json = '{"jsonrpc":"2.0","method":'
+    is_valid, error_msg = validate_jsonrpc_request(invalid_json)
+    assert is_valid == False
+    
+    print("✅ validate_jsonrpc_request tests passed")
+
+
+def test_helper_functions():
+    """Test helper functions"""
+    print("Testing helper functions...")
+    
+    # Test create_response
+    response = create_response("1", '{"success":true}')
+    assert '"jsonrpc":"2.0"' in response
+    assert '"id":"1"' in response
+    assert '"result":{"success":true}' in response
+    
+    # Test create_error_response
+    error_response = create_error_response("2", ERROR_INVALID_PARAMS, "Missing parameter")
+    assert '"jsonrpc":"2.0"' in error_response
+    assert '"id":"2"' in error_response
+    assert '"code":-32602' in error_response
+    assert '"message":"Missing parameter"' in error_response
+    
+    # Test create_notification
+    notification = create_notification("test/event", '{"data":"value"}')
+    assert '"jsonrpc":"2.0"' in notification
+    assert '"method":"test/event"' in notification
+    assert '"params":{"data":"value"}' in notification
+    assert '"id"' not in notification
+    
+    # Test get_error_message
+    assert get_error_message(ERROR_PARSE) == "Parse error"
+    assert get_error_message(ERROR_INVALID_REQUEST) == "Invalid Request"
+    assert get_error_message(ERROR_METHOD_NOT_FOUND) == "Method not found"
+    assert get_error_message(ERROR_INVALID_PARAMS) == "Invalid params"
+    assert get_error_message(ERROR_INTERNAL) == "Internal error"
+    assert get_error_message(-99999) == "Unknown error"
+    
+    print("✅ Helper function tests passed")
+
+
+def test_mcp_specific_messages():
+    """Test MCP-specific JSON-RPC messages"""
+    print("Testing MCP-specific message patterns...")
+    
+    # Test tools/list request
+    tools_list_request = JSONRPCRequest("tools/list", "1")
+    json_str = tools_list_request.to_json()
+    assert parse_jsonrpc_message(json_str) == "request"
+    assert extract_field(json_str, "method") == "tools/list"
+    
+    # Test tools/call request
+    tools_call_params = '{"name":"get_weather","arguments":{"location":"San Francisco"}}'
+    tools_call_request = JSONRPCRequest("tools/call", "2", tools_call_params)
+    json_str = tools_call_request.to_json()
+    assert '"name":"get_weather"' in json_str
+    assert '"location":"San Francisco"' in json_str
+    
+    # Test tools/list response
+    tools_list_result = '{"tools":[{"name":"get_weather","description":"Get weather","inputSchema":{"type":"object"}}]}'
+    tools_list_response = JSONRPCResponse("1", tools_list_result)
+    json_str = tools_list_response.to_json()
+    assert '"tools":[' in json_str
+    assert '"name":"get_weather"' in json_str
+    
+    # Test tools/call response
+    tools_call_result = '{"content":[{"type":"text","text":"Weather in SF: Sunny, 72°F"}]}'
+    tools_call_response = JSONRPCResponse("2", tools_call_result)
+    json_str = tools_call_response.to_json()
+    assert '"content":[' in json_str
+    assert '"type":"text"' in json_str
+    
+    # Test tool not found error
+    tool_not_found_error = JSONRPCError("3", ERROR_METHOD_NOT_FOUND, "Tool 'nonexistent' not found")
+    json_str = tool_not_found_error.to_json()
+    assert '"code":-32601' in json_str
+    assert "'nonexistent'" in json_str
+    
+    print("✅ MCP-specific message tests passed")
+
+
+def test_edge_cases():
+    """Test edge cases and error conditions"""
+    print("Testing edge cases...")
+    
+    # Test empty params
+    request_empty_params = JSONRPCRequest("test", "1", "")
+    json_str = request_empty_params.to_json()
+    assert '"params":' in json_str
+    
+    # Test very long id
+    long_id = "x" * 1000
+    request_long_id = JSONRPCRequest("test", long_id)
+    json_str = request_long_id.to_json()
+    assert long_id in json_str
+    
+    # Test special characters in method name
+    special_method = "test/with-special_chars.123"
+    request_special = JSONRPCRequest(special_method, "1")
+    json_str = request_special.to_json()
+    assert special_method in json_str
+    
+    # Test Unicode characters
+    unicode_message = "Test with unicode: 你好 🌟"
+    error_unicode = JSONRPCError("1", ERROR_INTERNAL, unicode_message)
+    json_str = error_unicode.to_json()
+    assert unicode_message in json_str
+    
+    print("✅ Edge case tests passed")
+
+
+def run_all_tests():
+    """Run the complete test suite"""
+    print("🧪 Running JSON-RPC 2.0 Test Suite...")
+    print("=" * 50)
+    
+    try:
+        test_jsonrpc_request_creation()
+        test_jsonrpc_notification_creation()
+        test_jsonrpc_response_creation()
+        test_jsonrpc_error_creation()
+        test_parse_jsonrpc_message()
+        test_extract_field()
+        test_validate_jsonrpc_request()
+        test_helper_functions()
+        test_mcp_specific_messages()
+        test_edge_cases()
+        
+        print("=" * 50)
+        print("🎉 All JSON-RPC 2.0 tests passed!")
+        print("✅ Implementation is ready for MCP protocol layer")
+        
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    run_all_tests()

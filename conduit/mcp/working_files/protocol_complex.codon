@@ -1,0 +1,350 @@
+"""
+Model Context Protocol (MCP) Implementation
+Specification: 2024-11-05 (https://modelcontextprotocol.io/llms-full.html)
+
+Core MCP methods:
+- initialize: Protocol handshake and capability negotiation  
+- tools/list: List available tools
+- tools/call: Execute a tool with parameters
+- resources/list: List available resources (optional)
+- resources/read: Read resource content (optional)
+- prompts/list: List available prompts (optional)
+"""
+
+from .jsonrpc import JSONRPCRequest, JSONRPCResponse, JSONRPCError, JSONRPCNotification
+from .jsonrpc import ERROR_INVALID_REQUEST, ERROR_METHOD_NOT_FOUND, ERROR_INVALID_PARAMS
+from .tool import Tool
+
+# MCP Protocol Version
+MCP_VERSION = "2024-11-05"
+
+# MCP Server Capabilities
+class ServerCapabilities:
+    """MCP Server capabilities declaration"""
+    
+    def __init__(self):
+        self.tools: bool = True
+        self.resources: bool = False
+        self.prompts: bool = False
+        self.logging: bool = False
+    
+    def to_dict(self) -> str:
+        """Convert capabilities to JSON string"""
+        capabilities = []
+        
+        if self.tools:
+            capabilities.append('"tools":{}')
+        if self.resources:
+            capabilities.append('"resources":{}')
+        if self.prompts:
+            capabilities.append('"prompts":{}')
+        if self.logging:
+            capabilities.append('"logging":{}')
+        
+        return "{" + ",".join(capabilities) + "}"
+
+
+class ClientCapabilities:
+    """MCP Client capabilities declaration"""
+    
+    def __init__(self):
+        self.sampling: bool = False
+        self.roots: bool = False
+
+
+def parse_client_capabilities(json_str: str) -> ClientCapabilities:
+    """Parse client capabilities from JSON"""
+    caps = ClientCapabilities()
+    
+    # Simple JSON parsing for capabilities
+    if '"sampling":' in json_str:
+        caps.sampling = True
+    if '"roots":' in json_str:
+        caps.roots = True
+        
+    return caps
+
+
+class MCPProtocol:
+    """Core MCP protocol implementation"""
+    
+    def __init__(self):
+        self.server_name: str = "Conduit MCP Server"
+        self.server_version: str = "1.0.0"
+        self.protocol_version: str = MCP_VERSION
+        self.capabilities: ServerCapabilities = ServerCapabilities()
+        self.tools: dict[str, Tool] = {}
+        self.initialized: bool = False
+    
+    def add_tool(self, tool: Tool):
+        """Register a tool with the MCP server"""
+        self.tools[tool.name] = tool
+    
+    def handle_request(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """
+        Handle an MCP request and return appropriate response
+        """
+        try:
+            if request.method == "initialize":
+                return self._handle_initialize(request)
+            elif request.method == "tools/list":
+                return self._handle_tools_list(request)
+            elif request.method == "tools/call":
+                return self._handle_tools_call(request)
+            else:
+                error = JSONRPCError(
+                    request.id,
+                    ERROR_METHOD_NOT_FOUND,
+                    "Method '" + request.method + "' not found"
+                )
+                return JSONRPCResponse(request.id, error.to_json())
+                
+        except Exception as e:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Error processing request: " + str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    def _handle_initialize(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """
+        Handle initialize request - MCP handshake
+        
+        Request format:
+        {
+            "jsonrpc": "2.0",
+            "id": "1",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {...},
+                "clientInfo": {
+                    "name": "ExampleClient",
+                    "version": "1.0.0"
+                }
+            }
+        }
+        """
+        if self.initialized:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Server already initialized"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Parse client capabilities (simplified)
+        if '"capabilities":' in request.params:
+            # Extract capabilities section
+            caps_start = request.params.find('"capabilities":')
+            if caps_start != -1:
+                caps_section = request.params[caps_start:]
+                # In real implementation, would do proper JSON parsing
+        
+        self.initialized = True
+        
+        # Build response
+        response_data = '{'
+        response_data += '"protocolVersion":"' + self.protocol_version + '",'
+        response_data += '"capabilities":' + self.capabilities.to_dict() + ','
+        response_data += '"serverInfo":{'
+        response_data += '"name":"' + self.server_name + '",'
+        response_data += '"version":"' + self.server_version + '"'
+        response_data += '}'
+        response_data += '}'
+        
+        return JSONRPCResponse(request.id, response_data)
+    
+    def _handle_tools_list(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """
+        Handle tools/list request - return available tools
+        
+        Response format:
+        {
+            "tools": [
+                {
+                    "name": "weather",
+                    "description": "Get weather for a city",
+                    "inputSchema": {...}
+                }
+            ]
+        }
+        """
+        if not self.initialized:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Server not initialized"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        tools_list = []
+        for tool_name, tool in self.tools.items():
+            tool_json = '{'
+            tool_json += f'"name":"{tool.name}",'
+            tool_json += f'"description":"{tool.description}",'
+            tool_json += f'"inputSchema":{tool.get_schema()}'
+            tool_json += '}'
+            tools_list.append(tool_json)
+        
+        response_data = '{"tools":[' + ",".join(tools_list) + ']}'
+        return JSONRPCResponse(request.id, response_data)
+    
+    def _handle_tools_call(self, request: JSONRPCRequest) -> JSONRPCResponse:
+        """
+        Handle tools/call request - execute a tool
+        
+        Request format:
+        {
+            "jsonrpc": "2.0",
+            "id": "2",
+            "method": "tools/call",
+            "params": {
+                "name": "weather",
+                "arguments": {
+                    "city": "San Francisco"
+                }
+            }
+        }
+        """
+        if not self.initialized:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_REQUEST,
+                "Server not initialized"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Extract tool name from params
+        tool_name = self._extract_param_field(request.params, "name")
+        if tool_name == "":
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_PARAMS,
+                "Missing 'name' parameter"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Check if tool exists
+        if tool_name not in self.tools:
+            error = JSONRPCError(
+                request.id,
+                ERROR_METHOD_NOT_FOUND,
+                "Tool '" + tool_name + "' not found"
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+        
+        # Extract arguments
+        arguments = self._extract_param_field(request.params, "arguments")
+        
+        # Execute tool
+        tool = self.tools[tool_name]
+        try:
+            result = tool.execute(arguments)
+            
+            # Build response in MCP format
+            response_data = '{'
+            response_data += '"content":['
+            response_data += '{'
+            response_data += '"type":"text",'
+            response_data += f'"text":"{result}"'
+            response_data += '}'
+            response_data += ']'
+            response_data += '}'
+            
+            return JSONRPCResponse(request.id, response_data)
+            
+        except Exception as e:
+            error = JSONRPCError(
+                request.id,
+                ERROR_INVALID_PARAMS,
+                "Tool execution failed: " + str(e)
+            )
+            return JSONRPCResponse(request.id, error.to_json())
+    
+    def _extract_param_field(self, params: str, field: str) -> str:
+        """Extract a field from parameters JSON string"""
+        if params == "":
+            return ""
+        
+        field_pattern = f'"{field}":'
+        start_pos = params.find(field_pattern)
+        if start_pos == -1:
+            return ""
+        
+        start_pos += len(field_pattern)
+        
+        # Skip whitespace
+        while start_pos < len(params) and params[start_pos] in ' \t\n':
+            start_pos += 1
+        
+        if start_pos >= len(params):
+            return ""
+        
+        # Handle string values
+        if params[start_pos] == '"':
+            start_pos += 1
+            end_pos = start_pos
+            while end_pos < len(params) and params[end_pos] != '"':
+                if params[end_pos] == '\\':
+                    end_pos += 2  # Skip escaped character
+                else:
+                    end_pos += 1
+            return params[start_pos:end_pos]
+        
+        # Handle object values (for arguments)
+        elif params[start_pos] == '{':
+            brace_count = 0
+            end_pos = start_pos
+            while end_pos < len(params):
+                if params[end_pos] == '{':
+                    brace_count += 1
+                elif params[end_pos] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_pos += 1
+                        break
+                end_pos += 1
+            return params[start_pos:end_pos]
+        
+        return ""
+
+
+# Utility functions for MCP protocol
+def create_initialize_response(server_name: str = "Conduit MCP Server", 
+                             server_version: str = "1.0.0") -> str:
+    """Create a standard initialize response"""
+    protocol = MCPProtocol()
+    protocol.server_name = server_name
+    protocol.server_version = server_version
+    
+    response_data = '{'
+    response_data += '"protocolVersion":"' + MCP_VERSION + '",'
+    response_data += '"capabilities":' + protocol.capabilities.to_dict() + ','
+    response_data += '"serverInfo":{'
+    response_data += '"name":"' + server_name + '",'
+    response_data += '"version":"' + server_version + '"'
+    response_data += '}'
+    response_data += '}'
+    
+    return response_data
+
+
+def create_tools_list_response(tools: list[Tool]) -> str:
+    """Create a tools/list response from a list of tools"""
+    tools_json = []
+    for tool in tools:
+        tool_json = '{'
+        tool_json += f'"name":"{tool.name}",'
+        tool_json += f'"description":"{tool.description}",'
+        tool_json += f'"inputSchema":{tool.get_schema()}'
+        tool_json += '}'
+        tools_json.append(tool_json)
+    
+    return '{"tools":[' + ",".join(tools_json) + ']}'
+
+
+def create_tool_result(content: str) -> str:
+    """Create a tool execution result in MCP format"""
+    return '{"content":[{"type":"text","text":"' + content + '"}]}'
