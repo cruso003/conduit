@@ -1,0 +1,213 @@
+# Conduit ML Inference Demo
+# Demonstrates the unified HTTP + MCP + ML inference framework
+
+from conduit.framework.conduit import Conduit
+from conduit.ml.loader import create_dummy_model
+import os
+
+def main():
+    """Demonstrate ML inference integration"""
+    
+    print("🚀 Conduit ML Inference Demo")
+    print("=" * 50)
+    
+    # Create Conduit app
+    app = Conduit(port=8000)
+    
+    # Enable auto-documentation
+    app.enable_docs("ML Demo API", "1.0.0", "Machine learning inference with Conduit")
+    
+    # Enable MCP protocol support
+    app.enable_mcp()
+    
+    # Enable ML inference
+    app.enable_ml()
+    
+    # Create a dummy model for testing
+    model_path = "demo_classifier.npz"
+    if not os.path.exists(model_path):
+        print(f"📦 Creating dummy model: {model_path}")
+        try:
+            create_dummy_model(model_path, input_dim=4, output_dim=3)
+            print("✅ Dummy model created successfully")
+        except Exception as e:
+            print(f"❌ Failed to create dummy model: {e}")
+            return
+    
+    # Regular HTTP routes
+    @app.get("/")
+    def index(request):
+        """API overview with all capabilities"""
+        stats = {
+            "http_routes": len(app.route_info),
+            "mcp_stats": app.get_mcp_stats(),
+            "ml_stats": app.get_ml_stats()
+        }
+        
+        return {
+            "message": "Conduit Unified Framework Demo",
+            "features": ["HTTP Routes", "MCP Protocol", "ML Inference"],
+            "endpoints": {
+                "docs": "/docs",
+                "openapi": "/openapi.json",
+                "mcp": "/mcp",
+                "predict": "/predict",
+                "classify": "/classify"
+            },
+            "stats": stats
+        }
+    
+    @app.get("/health")
+    def health_check(request):
+        """Health check endpoint"""
+        return {
+            "status": "healthy",
+            "framework": "Conduit",
+            "version": "1.1.0-dev",
+            "features": {
+                "http": True,
+                "mcp": app.mcp_enabled,
+                "ml": app.ml_enabled
+            }
+        }
+    
+    # MCP Tools
+    @app.tool("get_model_info", "Get information about loaded ML models")
+    def model_info_tool():
+        """MCP tool to get model information"""
+        ml_stats = app.get_ml_stats()
+        if ml_stats["ml_enabled"]:
+            return f"Loaded {ml_stats['endpoints']} ML models with {ml_stats['total_predictions']} total predictions"
+        else:
+            return "No ML models loaded"
+    
+    @app.tool("predict_sample", "Run a sample prediction")
+    def predict_sample_tool():
+        """MCP tool to run sample prediction"""
+        try:
+            # Sample input for 4-dimensional classifier
+            sample_input = [1.0, 2.0, 3.0, 4.0]
+            
+            # Find first ML endpoint and run prediction
+            if app.ml_endpoints:
+                result = app.ml_endpoints[0].predict(sample_input)
+                return f"Sample prediction result: {result}"
+            else:
+                return "No ML endpoints available"
+        except Exception as e:
+            return f"Prediction failed: {str(e)}"
+    
+    # ML Inference Endpoints
+    def preprocess_features(input_data):
+        """Preprocess input features for the model"""
+        try:
+            # Expect input like {"features": [1.0, 2.0, 3.0, 4.0]}
+            if "features" in input_data:
+                features = input_data["features"]
+                if len(features) == 4:
+                    import numpy as np
+                    return np.array(features, dtype=float)
+                else:
+                    raise ValueError(f"Expected 4 features, got {len(features)}")
+            else:
+                raise ValueError("Missing 'features' field in input")
+        except Exception as e:
+            raise ValueError(f"Preprocessing failed: {str(e)}")
+    
+    @app.ml_endpoint("/predict", model_path)
+    def predict_endpoint():
+        """Direct prediction endpoint"""
+        return preprocess_features
+    
+    # Alternative ML endpoint with custom processing
+    @app.post("/classify") 
+    def classify_endpoint(request):
+        """Classification endpoint with custom post-processing"""
+        try:
+            # Parse input
+            input_data = request.parse_json()
+            
+            # Load model and run prediction
+            model = app.load_model(model_path)
+            processed_input = preprocess_features(input_data)
+            raw_prediction = model.predict(processed_input)
+            
+            # Post-process: convert to class probabilities
+            import numpy as np
+            # Apply softmax for probabilities
+            exp_pred = np.exp(raw_prediction - np.max(raw_prediction))
+            probabilities = exp_pred / np.sum(exp_pred)
+            
+            # Find top class
+            top_class = int(np.argmax(probabilities))
+            confidence = float(probabilities[top_class])
+            
+            class_names = ["Class A", "Class B", "Class C"]
+            
+            return {
+                "predicted_class": class_names[top_class],
+                "class_index": top_class,
+                "confidence": confidence,
+                "all_probabilities": probabilities.tolist(),
+                "model": model.get_info()["name"],
+                "status": "success"
+            }
+            
+        except Exception as e:
+            return {"error": str(e), "status": "error"}
+    
+    # Stats endpoint
+    @app.get("/stats")
+    def get_stats(request):
+        """Get comprehensive framework statistics"""
+        return {
+            "http_stats": {
+                "routes": len(app.route_info),
+                "middleware_enabled": len(app.middleware_chain.middlewares) > 0
+            },
+            "mcp_stats": app.get_mcp_stats(),
+            "ml_stats": app.get_ml_stats()
+        }
+    
+    print("\n📋 Framework Configuration:")
+    print(f"  ✅ HTTP Routes: {len(app.route_info)} registered")
+    print(f"  ✅ MCP Protocol: {'Enabled' if app.mcp_enabled else 'Disabled'}")
+    print(f"  ✅ ML Inference: {'Enabled' if app.ml_enabled else 'Disabled'}")
+    
+    print("\n🔗 Available Endpoints:")
+    print("  📊 GET  /              - API overview")
+    print("  ❤️  GET  /health        - Health check")
+    print("  📈 GET  /stats         - Framework statistics")
+    print("  🤖 POST /mcp           - MCP JSON-RPC protocol")
+    print("  🧠 POST /predict       - ML prediction endpoint")
+    print("  🎯 POST /classify      - ML classification with post-processing")
+    print("  📚 GET  /docs          - Interactive API documentation")
+    print("  📋 GET  /openapi.json  - OpenAPI specification")
+    
+    print("\n📖 Example Usage:")
+    print("  # Health check")
+    print("  curl http://localhost:8000/health")
+    print("")
+    print("  # ML prediction") 
+    print("  curl -X POST http://localhost:8000/predict \\")
+    print("    -H 'Content-Type: application/json' \\")
+    print("    -d '{\"features\": [1.0, 2.0, 3.0, 4.0]}'")
+    print("")
+    print("  # Classification with post-processing")
+    print("  curl -X POST http://localhost:8000/classify \\")
+    print("    -H 'Content-Type: application/json' \\")
+    print("    -d '{\"features\": [1.5, 2.5, 3.5, 4.5]}'")
+    
+    print("\n🚀 Starting Conduit ML Demo Server...")
+    print("   Press Ctrl+C to stop")
+    
+    # Start the server
+    try:
+        app.run()
+    except KeyboardInterrupt:
+        print("\n👋 Server stopped")
+    except Exception as e:
+        print(f"❌ Server error: {e}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,280 @@
+#!/usr/bin/env codon
+# ML Pipeline & Ensemble Demo
+# Demonstrates multi-model orchestration with Conduit
+
+from conduit.framework.conduit import Conduit
+from conduit.ml.pipeline import (
+    MLPipeline, PipelineStage, EnsemblePredictor,
+    create_pipeline, create_ensemble
+)
+import numpy as np
+import json
+
+# Create Conduit app
+app = Conduit(ml_enabled=True)
+
+# ========== Create Demo Models ==========
+
+def create_demo_models():
+    """Create some demo NumPy models for testing"""
+    import os
+    
+    # Create models directory
+    os.makedirs("models", exist_ok=True)
+    
+    # Model 1: Simple preprocessing (normalization)
+    normalizer = np.array([[1.0, 0.5], [2.0, 1.0]])  # mean, std
+    np.save("models/normalizer.npy", normalizer)
+    
+    # Model 2: Feature transformation (PCA-like)
+    transformer = np.array([[0.7, 0.3], [0.3, 0.7]])
+    np.save("models/transformer.npy", transformer)
+    
+    # Model 3: Classification weights
+    classifier = np.array([[1.5, -0.5], [-0.5, 1.5]])
+    np.save("models/classifier.npy", classifier)
+    
+    # Alternative classifiers for ensemble
+    classifier2 = np.array([[1.2, -0.8], [-0.3, 1.8]])
+    np.save("models/classifier2.npy", classifier2)
+    
+    classifier3 = np.array([[1.8, -0.3], [-0.8, 1.2]])
+    np.save("models/classifier3.npy", classifier3)
+    
+    print("✅ Demo models created in models/ directory")
+
+# ========== Sequential Pipeline Example ==========
+
+# Create a 3-stage pipeline: normalize -> transform -> classify
+pipeline = app.create_pipeline_builder("text_classifier") \
+    .add_model("models/normalizer.npy", "normalize") \
+    .add_model("models/transformer.npy", "transform") \
+    .add_model("models/classifier.npy", "classify") \
+    .build()
+
+@app.ml_pipeline("/api/pipeline/predict", pipeline)
+def pipeline_predict(request):
+    """Sequential pipeline prediction"""
+    data = json.loads(request.body)
+    features = np.array(data["features"])
+    return features
+
+# ========== Pipeline with Intermediate Results ==========
+
+manual_pipeline = app.create_pipeline("detailed_pipeline")
+
+# Load models and create stages manually
+from conduit.ml.loader import load_model
+
+normalizer_model = app.load_model("models/normalizer.npy")
+transformer_model = app.load_model("models/transformer.npy")
+classifier_model = app.load_model("models/classifier.npy")
+
+# Add stages
+from conduit.ml.pipeline import PipelineStage
+
+manual_pipeline.add_stage(PipelineStage("normalize", normalizer_model))
+manual_pipeline.add_stage(PipelineStage("transform", transformer_model))
+manual_pipeline.add_stage(PipelineStage("classify", classifier_model))
+
+@app.route("/api/pipeline/detailed", "POST")
+def detailed_pipeline(request):
+    """Pipeline with intermediate results"""
+    try:
+        data = json.loads(request.body)
+        features = np.array(data["features"])
+        
+        # Execute with intermediate results cached
+        result = manual_pipeline.execute(features, cache_results=True)
+        
+        # Get pipeline statistics
+        stats = manual_pipeline.get_stats()
+        
+        return app.json({
+            "final_output": result["final_output"].tolist(),
+            "intermediate_results": {
+                stage: {
+                    "output": res["output"].tolist(),
+                    "time_ms": res["time_ms"]
+                }
+                for stage, res in result["intermediate_results"].items()
+            },
+            "pipeline_stats": stats
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Ensemble Prediction Example ==========
+
+# Create ensemble from 3 classifiers with voting strategy
+ensemble = app.create_ensemble([
+    "models/classifier.npy",
+    "models/classifier2.npy",
+    "models/classifier3.npy"
+], strategy="average")
+
+@app.ml_ensemble("/api/ensemble/predict", ensemble)
+def ensemble_predict(request):
+    """Ensemble prediction"""
+    data = json.loads(request.body)
+    features = np.array(data["features"])
+    return features
+
+# ========== Parallel Pipeline Example ==========
+
+@app.route("/api/pipeline/parallel", "POST")
+def parallel_pipeline(request):
+    """Execute all stages in parallel (each gets same input)"""
+    try:
+        data = json.loads(request.body)
+        features = np.array(data["features"])
+        
+        # Execute all stages in parallel
+        results = manual_pipeline.execute_parallel(features)
+        
+        return app.json({
+            "parallel_results": [
+                res.tolist() if res is not None else None
+                for res in results
+            ],
+            "num_stages": len(results)
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Conditional Pipeline Example ==========
+
+from conduit.ml.pipeline import ConditionalPipeline
+
+# Create pipelines for different conditions
+fast_pipeline = app.create_pipeline("fast")
+fast_pipeline.add_stage(PipelineStage("classify", classifier_model))
+
+slow_pipeline = app.create_pipeline("slow")
+slow_pipeline.add_stage(PipelineStage("normalize", normalizer_model))
+slow_pipeline.add_stage(PipelineStage("transform", transformer_model))
+slow_pipeline.add_stage(PipelineStage("classify", classifier_model))
+
+# Create conditional pipeline
+conditional = ConditionalPipeline("smart_pipeline")
+
+# Route based on input size
+def is_small_input(data):
+    """Check if input is small (< 10 elements)"""
+    return len(data) < 10
+
+conditional.add_route(is_small_input, fast_pipeline)
+conditional.set_default(slow_pipeline)
+
+@app.route("/api/pipeline/conditional", "POST")
+def conditional_predict(request):
+    """Conditional routing based on input"""
+    try:
+        data = json.loads(request.body)
+        features = np.array(data["features"])
+        
+        # Execute with conditional routing
+        result = conditional.execute(features)
+        
+        return app.json({
+            "result": result.tolist(),
+            "message": "Used fast pipeline" if is_small_input(features) else "Used slow pipeline"
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Pipeline Statistics Endpoint ==========
+
+@app.route("/api/pipeline/stats", "GET")
+def pipeline_stats(request):
+    """Get statistics for all pipelines"""
+    return app.json({
+        "sequential_pipeline": pipeline.get_stats(),
+        "manual_pipeline": manual_pipeline.get_stats(),
+        "fast_pipeline": fast_pipeline.get_stats(),
+        "slow_pipeline": slow_pipeline.get_stats(),
+        "ensemble": ensemble.get_stats()
+    })
+
+# ========== Ensemble Statistics Endpoint ==========
+
+@app.route("/api/ensemble/stats", "GET")
+def ensemble_stats(request):
+    """Get ensemble statistics"""
+    stats = ensemble.get_stats()
+    
+    return app.json({
+        "ensemble": stats,
+        "models": [
+            "classifier.npy",
+            "classifier2.npy",
+            "classifier3.npy"
+        ]
+    })
+
+# ========== Health Check ==========
+
+@app.route("/health", "GET")
+def health(request):
+    """Health check endpoint"""
+    return app.json({
+        "status": "healthy",
+        "ml_enabled": True,
+        "features": [
+            "sequential_pipelines",
+            "parallel_pipelines",
+            "conditional_pipelines",
+            "ensemble_predictions",
+            "intermediate_results"
+        ]
+    })
+
+# ========== Main ==========
+
+if __name__ == "__main__":
+    print("")
+    print("=" * 70)
+    print("Conduit ML Pipeline & Ensemble Demo")
+    print("=" * 70)
+    print("")
+    print("Features:")
+    print("  ✅ Sequential Pipelines (multi-stage ML)")
+    print("  ✅ Parallel Pipelines (all stages get same input)")
+    print("  ✅ Conditional Pipelines (smart routing)")
+    print("  ✅ Ensemble Predictions (multiple models)")
+    print("  ✅ Intermediate Results (debug pipeline stages)")
+    print("")
+    
+    # Create demo models
+    create_demo_models()
+    
+    print("")
+    print("Available Endpoints:")
+    print("")
+    print("  Pipeline Endpoints:")
+    print("    POST /api/pipeline/predict      - Sequential pipeline")
+    print("    POST /api/pipeline/detailed     - Pipeline with intermediate results")
+    print("    POST /api/pipeline/parallel     - Parallel pipeline execution")
+    print("    POST /api/pipeline/conditional  - Conditional routing")
+    print("    GET  /api/pipeline/stats        - Pipeline statistics")
+    print("")
+    print("  Ensemble Endpoints:")
+    print("    POST /api/ensemble/predict      - Ensemble prediction")
+    print("    GET  /api/ensemble/stats        - Ensemble statistics")
+    print("")
+    print("  General:")
+    print("    GET  /health                    - Health check")
+    print("")
+    print("Example Request:")
+    print('  curl -X POST http://localhost:8080/api/pipeline/predict \\')
+    print('    -H "Content-Type: application/json" \\')
+    print('    -d \'{"features": [1.5, 2.3]}\'')
+    print("")
+    print("Starting server...")
+    print("")
+    
+    # Run server
+    app.run(host="127.0.0.1", port=8080)

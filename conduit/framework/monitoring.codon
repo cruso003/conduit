@@ -1,0 +1,365 @@
+"""
+Monitoring & Observability
+
+Provides metrics collection, logging, and health checks
+for production monitoring.
+"""
+
+import time
+from python import threading, json
+
+
+class Metrics:
+    """
+    Metrics collector for monitoring
+    """
+    
+    def __init__(self):
+        self.counters = {}  # Count events
+        self.gauges = {}    # Current values
+        self.histograms = {}  # Value distributions
+        self.timers = {}    # Timing measurements
+        self.lock = threading.Lock()
+    
+    def increment(self, name: str, value: int = 1):
+        """Increment a counter"""
+        with self.lock:
+            if name not in self.counters:
+                self.counters[name] = 0
+            self.counters[name] += value
+    
+    def set_gauge(self, name: str, value: float):
+        """Set a gauge value"""
+        with self.lock:
+            self.gauges[name] = value
+    
+    def record_value(self, name: str, value: float):
+        """Record a value in histogram"""
+        with self.lock:
+            if name not in self.histograms:
+                self.histograms[name] = []
+            self.histograms[name].append(value)
+    
+    def record_time(self, name: str, duration_ms: float):
+        """Record timing measurement"""
+        with self.lock:
+            if name not in self.timers:
+                self.timers[name] = []
+            self.timers[name].append(duration_ms)
+    
+    def get_counter(self, name: str) -> int:
+        """Get counter value"""
+        with self.lock:
+            return self.counters.get(name, 0)
+    
+    def get_gauge(self, name: str) -> float:
+        """Get gauge value"""
+        with self.lock:
+            return self.gauges.get(name, 0.0)
+    
+    def get_histogram_stats(self, name: str) -> dict:
+        """Get histogram statistics"""
+        with self.lock:
+            values = self.histograms.get(name, [])
+            if not values:
+                return {"count": 0, "min": 0, "max": 0, "avg": 0}
+            
+            return {
+                "count": len(values),
+                "min": min(values),
+                "max": max(values),
+                "avg": sum(values) / len(values)
+            }
+    
+    def get_timer_stats(self, name: str) -> dict:
+        """Get timer statistics"""
+        return self.get_histogram_stats(name)
+    
+    def get_all_metrics(self) -> dict:
+        """Get all metrics as dictionary"""
+        with self.lock:
+            return {
+                "counters": dict(self.counters),
+                "gauges": dict(self.gauges),
+                "histograms": {
+                    name: self.get_histogram_stats(name)
+                    for name in self.histograms.keys()
+                },
+                "timers": {
+                    name: self.get_timer_stats(name)
+                    for name in self.timers.keys()
+                }
+            }
+    
+    def reset(self):
+        """Reset all metrics"""
+        with self.lock:
+            self.counters.clear()
+            self.gauges.clear()
+            self.histograms.clear()
+            self.timers.clear()
+
+
+# Global metrics instance
+_metrics = Metrics()
+
+
+def get_metrics() -> Metrics:
+    """Get global metrics instance"""
+    return _metrics
+
+
+class RequestLogger:
+    """
+    Request/response logger
+    """
+    
+    def __init__(self, log_requests: bool = True, log_responses: bool = True):
+        self.log_requests = log_requests
+        self.log_responses = log_responses
+    
+    def log_request(self, req):
+        """Log incoming request"""
+        if self.log_requests:
+            print(f"[REQUEST] {req.method} {req.path}")
+            if req.query:
+                print(f"  Query: {req.query}")
+    
+    def log_response(self, req, res, duration_ms: float):
+        """Log outgoing response"""
+        if self.log_responses:
+            print(f"[RESPONSE] {req.method} {req.path} - {res.status_code} ({duration_ms:.2f}ms)")
+
+
+class LoggingMiddleware:
+    """
+    Middleware for request/response logging
+    """
+    
+    def __init__(self, log_requests: bool = True, log_responses: bool = True):
+        self.logger = RequestLogger(log_requests, log_responses)
+        self.metrics = get_metrics()
+    
+    def handle(self, req, res, next_handler):
+        """Handle request with logging"""
+        start_time = time.time()
+        
+        # Log request
+        self.logger.log_request(req)
+        
+        # Track metrics
+        self.metrics.increment("http.requests.total")
+        self.metrics.increment(f"http.requests.{req.method}")
+        
+        # Call next handler
+        next_handler(req, res)
+        
+        # Calculate duration
+        duration_ms = (time.time() - start_time) * 1000
+        
+        # Log response
+        self.logger.log_response(req, res, duration_ms)
+        
+        # Track metrics
+        self.metrics.record_time("http.request.duration", duration_ms)
+        self.metrics.increment(f"http.responses.{res.status_code}")
+
+
+class HealthCheck:
+    """
+    Health check system
+    """
+    
+    def __init__(self):
+        self.checks = {}
+        self.lock = threading.Lock()
+    
+    def register(self, name: str, check_func):
+        """
+        Register a health check
+        
+        Args:
+            name: Name of the check
+            check_func: Function that returns True if healthy
+        """
+        with self.lock:
+            self.checks[name] = check_func
+    
+    def run_checks(self) -> dict:
+        """
+        Run all health checks
+        
+        Returns:
+            Dictionary with check results
+        """
+        results = {}
+        all_healthy = True
+        
+        with self.lock:
+            for name, check_func in self.checks.items():
+                try:
+                    is_healthy = check_func()
+                    results[name] = {
+                        "healthy": is_healthy,
+                        "status": "ok" if is_healthy else "degraded"
+                    }
+                    if not is_healthy:
+                        all_healthy = False
+                        
+                except Exception as e:
+                    results[name] = {
+                        "healthy": False,
+                        "status": "error",
+                        "error": str(e)
+                    }
+                    all_healthy = False
+        
+        return {
+            "healthy": all_healthy,
+            "checks": results,
+            "timestamp": time.time()
+        }
+
+
+# Global health check instance
+_health_check = HealthCheck()
+
+
+def get_health_check() -> HealthCheck:
+    """Get global health check instance"""
+    return _health_check
+
+
+class MLMetrics:
+    """
+    ML-specific metrics tracking
+    """
+    
+    def __init__(self):
+        self.metrics = get_metrics()
+    
+    def record_inference(self, model_name: str, duration_ms: float, success: bool):
+        """Record model inference"""
+        self.metrics.increment(f"ml.inference.{model_name}.total")
+        self.metrics.record_time(f"ml.inference.{model_name}.duration", duration_ms)
+        
+        if success:
+            self.metrics.increment(f"ml.inference.{model_name}.success")
+        else:
+            self.metrics.increment(f"ml.inference.{model_name}.failure")
+    
+    def record_batch_inference(self, model_name: str, batch_size: int, duration_ms: float):
+        """Record batch inference"""
+        self.record_inference(model_name, duration_ms, True)
+        self.metrics.record_value(f"ml.inference.{model_name}.batch_size", batch_size)
+    
+    def record_model_load(self, model_name: str, duration_ms: float):
+        """Record model loading"""
+        self.metrics.increment(f"ml.model.{model_name}.loads")
+        self.metrics.record_time(f"ml.model.{model_name}.load_time", duration_ms)
+    
+    def record_pipeline_execution(self, pipeline_name: str, stages: int, duration_ms: float):
+        """Record pipeline execution"""
+        self.metrics.increment(f"ml.pipeline.{pipeline_name}.executions")
+        self.metrics.record_time(f"ml.pipeline.{pipeline_name}.duration", duration_ms)
+        self.metrics.record_value(f"ml.pipeline.{pipeline_name}.stages", stages)
+    
+    def record_vector_search(self, duration_ms: float, results: int):
+        """Record vector search"""
+        self.metrics.increment("ml.vector.searches")
+        self.metrics.record_time("ml.vector.search_duration", duration_ms)
+        self.metrics.record_value("ml.vector.results", results)
+
+
+# Convenience functions
+def track_request_time(func):
+    """
+    Decorator to track request processing time
+    
+    Usage:
+        @track_request_time
+        def handle_request(req, res):
+            pass
+    """
+    metrics = get_metrics()
+    
+    def wrapper(req, res):
+        start = time.time()
+        func(req, res)
+        duration = (time.time() - start) * 1000
+        metrics.record_time("request.duration", duration)
+    
+    return wrapper
+
+
+def track_inference_time(model_name: str):
+    """
+    Decorator to track inference time
+    
+    Usage:
+        @track_inference_time("my_model")
+        def predict(X):
+            return model.predict(X)
+    """
+    ml_metrics = MLMetrics()
+    
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start = time.time()
+            try:
+                result = func(*args, **kwargs)
+                duration = (time.time() - start) * 1000
+                ml_metrics.record_inference(model_name, duration, True)
+                return result
+            except Exception as e:
+                duration = (time.time() - start) * 1000
+                ml_metrics.record_inference(model_name, duration, False)
+                raise e
+        return wrapper
+    return decorator
+
+
+def create_metrics_endpoint():
+    """
+    Create metrics endpoint handler
+    
+    Usage:
+        @app.get("/metrics")
+        def metrics_handler(req, res):
+            create_metrics_endpoint()(req, res)
+    """
+    def handler(req, res):
+        metrics = get_metrics()
+        res.json(metrics.get_all_metrics())
+    
+    return handler
+
+
+def create_health_endpoint():
+    """
+    Create health check endpoint handler
+    
+    Usage:
+        @app.get("/health")
+        def health_handler(req, res):
+            create_health_endpoint()(req, res)
+    """
+    def handler(req, res):
+        health = get_health_check()
+        results = health.run_checks()
+        
+        status_code = 200 if results["healthy"] else 503
+        res.status(status_code)
+        res.json(results)
+    
+    return handler
+
+
+def logging_middleware(log_requests: bool = True, log_responses: bool = True):
+    """
+    Create logging middleware
+    
+    Usage:
+        app.use(logging_middleware())
+    """
+    return LoggingMiddleware(log_requests, log_responses)

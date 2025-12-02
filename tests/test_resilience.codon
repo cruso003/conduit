@@ -1,0 +1,332 @@
+"""
+Test ML Resilience Features
+
+Tests for CircuitBreaker, RetryPolicy, and ResilientMLModel.
+"""
+
+from conduit.ml.resilience import (
+    CircuitState,
+    CircuitBreaker,
+    RetryPolicy,
+    FallbackStrategy,
+    ResilientMLModel,
+    TimeoutGuard,
+    with_circuit_breaker,
+    with_retry,
+    with_timeout
+)
+import time
+
+
+class MockModel:
+    """Mock ML model for testing"""
+    def __init__(self, fail_count: int = 0):
+        self.fail_count = fail_count
+        self.call_count = 0
+        self.predict_calls = 0
+    
+    def predict(self, features: List[float]) -> List[float]:
+        self.predict_calls += 1
+        self.call_count += 1
+        
+        if self.call_count <= self.fail_count:
+            raise RuntimeError(f"Mock failure {self.call_count}")
+        
+        # Return simple prediction
+        return [sum(features)]
+    
+    def reset(self):
+        self.call_count = 0
+        self.predict_calls = 0
+
+
+class SlowModel:
+    """Mock model that simulates slow execution"""
+    def __init__(self, delay: float = 2.0):
+        self.delay = delay
+    
+    def predict(self, features: List[float]) -> List[float]:
+        time.sleep(self.delay)
+        return [1.0]
+
+
+def test_circuit_breaker_states():
+    """Test CircuitBreaker state transitions"""
+    print("\n" + "="*60)
+    print("TEST: CircuitBreaker States")
+    print("="*60)
+    
+    cb = CircuitBreaker(failure_threshold=2, success_threshold=2, timeout=1.0)
+    
+    # Initial state should be CLOSED
+    assert cb.state == CircuitState.CLOSED, f"Expected CLOSED, got {cb.state}"
+    print("✓ Initial state: CLOSED")
+    
+    # First failure - should stay CLOSED
+    cb.record_failure()
+    assert cb.state == CircuitState.CLOSED
+    print("✓ After 1 failure: CLOSED")
+    
+    # Second failure - should open
+    cb.record_failure()
+    assert cb.state == CircuitState.OPEN, f"Expected OPEN, got {cb.state}"
+    print("✓ After 2 failures: OPEN")
+    
+    # Wait for timeout
+    time.sleep(1.1)
+    
+    # Should transition to HALF_OPEN
+    assert cb.can_execute(), "Should allow execution in HALF_OPEN"
+    assert cb.state == CircuitState.HALF_OPEN
+    print("✓ After timeout: HALF_OPEN")
+    
+    # Record success in HALF_OPEN
+    cb.record_success()
+    assert cb.state == CircuitState.HALF_OPEN, "Should stay HALF_OPEN after 1 success"
+    print("✓ After 1 success in HALF_OPEN: still HALF_OPEN")
+    
+    # Second success should close
+    cb.record_success()
+    assert cb.state == CircuitState.CLOSED, f"Expected CLOSED, got {cb.state}"
+    print("✓ After 2 successes: CLOSED")
+    
+    print("✓ CircuitBreaker state transitions work correctly")
+
+
+def test_circuit_breaker_execution():
+    """Test CircuitBreaker with actual execution"""
+    print("\n" + "="*60)
+    print("TEST: CircuitBreaker Execution")
+    print("="*60)
+    
+    cb = CircuitBreaker(failure_threshold=3, timeout=1.0)
+    model = MockModel(fail_count=2)  # Fail first 2 calls
+    
+    # First call - should execute and fail
+    try:
+        if cb.can_execute():
+            model.predict([1.0, 2.0])
+            cb.record_success()
+    except RuntimeError:
+        cb.record_failure()
+    
+    assert cb.state == CircuitState.CLOSED, "Should stay CLOSED after 1 failure"
+    assert model.predict_calls == 1
+    print("✓ First failure: circuit stays CLOSED")
+    
+    # Second call - should execute and fail
+    try:
+        if cb.can_execute():
+            model.predict([1.0, 2.0])
+            cb.record_success()
+    except RuntimeError:
+        cb.record_failure()
+    
+    assert cb.state == CircuitState.CLOSED, "Should stay CLOSED after 2 failures"
+    assert model.predict_calls == 2
+    print("✓ Second failure: circuit stays CLOSED")
+    
+    # Third call - should execute, fail, and open circuit
+    try:
+        if cb.can_execute():
+            model.predict([1.0, 2.0])
+            cb.record_success()
+    except RuntimeError:
+        cb.record_failure()
+    
+    assert cb.state == CircuitState.OPEN, f"Expected OPEN, got {cb.state}"
+    assert model.predict_calls == 3
+    print("✓ Third failure: circuit OPENS")
+    
+    # Fourth call - should be rejected (circuit open)
+    executed = False
+    if cb.can_execute():
+        executed = True
+        model.predict([1.0, 2.0])
+    
+    assert not executed, "Should not execute when circuit is OPEN"
+    assert model.predict_calls == 3, "Should not call model when circuit is OPEN"
+    print("✓ Circuit OPEN: execution blocked")
+    
+    print("✓ CircuitBreaker execution control works correctly")
+
+
+def test_retry_policy():
+    """Test RetryPolicy with exponential backoff"""
+    print("\n" + "="*60)
+    print("TEST: RetryPolicy")
+    print("="*60)
+    
+    retry = RetryPolicy(max_retries=3, base_delay=0.1, max_delay=1.0)
+    model = MockModel(fail_count=2)  # Fail first 2 calls, succeed on 3rd
+    
+    start = time.time()
+    result = None
+    
+    try:
+        result = retry.execute(lambda: model.predict([1.0, 2.0]))
+    except RuntimeError as e:
+        print(f"Failed after retries: {e}")
+    
+    elapsed = time.time() - start
+    
+    assert result is not None, "Should succeed after retries"
+    assert model.predict_calls == 3, f"Expected 3 calls, got {model.predict_calls}"
+    assert elapsed >= 0.1, f"Should have delayed, elapsed: {elapsed}"
+    print(f"✓ Succeeded after 3 attempts (2 retries) in {elapsed:.2f}s")
+    
+    # Test exhausting retries
+    model2 = MockModel(fail_count=10)  # Always fail
+    retry2 = RetryPolicy(max_retries=2, base_delay=0.05)
+    
+    try:
+        retry2.execute(lambda: model2.predict([1.0]))
+        assert False, "Should have raised RuntimeError"
+    except RuntimeError as e:
+        assert model2.predict_calls == 3, f"Expected 3 attempts, got {model2.predict_calls}"
+        print(f"✓ Exhausted retries after {model2.predict_calls} attempts")
+    
+    print("✓ RetryPolicy works correctly")
+
+
+def test_timeout_guard():
+    """Test TimeoutGuard"""
+    print("\n" + "="*60)
+    print("TEST: TimeoutGuard")
+    print("="*60)
+    
+    # Test successful execution within timeout
+    guard = TimeoutGuard(timeout=1.0)
+    
+    def fast_task():
+        time.sleep(0.1)
+        return "completed"
+    
+    result = guard.execute(fast_task)
+    assert result == "completed", f"Expected 'completed', got {result}"
+    print("✓ Fast task completes within timeout")
+    
+    # Test timeout
+    guard2 = TimeoutGuard(timeout=0.5)
+    
+    def slow_task():
+        time.sleep(2.0)
+        return "should not complete"
+    
+    try:
+        guard2.execute(slow_task)
+        assert False, "Should have timed out"
+    except TimeoutError:
+        print("✓ Slow task times out correctly")
+    
+    print("✓ TimeoutGuard works correctly")
+
+
+def test_resilient_ml_model():
+    """Test ResilientMLModel wrapper"""
+    print("\n" + "="*60)
+    print("TEST: ResilientMLModel")
+    print("="*60)
+    
+    # Test with circuit breaker only
+    base_model = MockModel(fail_count=0)
+    resilient = ResilientMLModel(
+        model=base_model,
+        use_circuit_breaker=True,
+        use_retry=False
+    )
+    
+    result = resilient.predict([1.0, 2.0, 3.0])
+    assert result == [6.0], f"Expected [6.0], got {result}"
+    assert base_model.predict_calls == 1
+    print("✓ ResilientMLModel with circuit breaker")
+    
+    # Test with retry
+    base_model2 = MockModel(fail_count=2)
+    resilient2 = ResilientMLModel(
+        model=base_model2,
+        use_circuit_breaker=False,
+        use_retry=True,
+        max_retries=3
+    )
+    
+    result = resilient2.predict([1.0, 2.0])
+    assert result == [3.0], f"Expected [3.0], got {result}"
+    assert base_model2.predict_calls == 3, f"Expected 3 calls, got {base_model2.predict_calls}"
+    print("✓ ResilientMLModel with retry")
+    
+    # Test with both circuit breaker and retry
+    base_model3 = MockModel(fail_count=1)
+    resilient3 = ResilientMLModel(
+        model=base_model3,
+        use_circuit_breaker=True,
+        use_retry=True,
+        max_retries=2
+    )
+    
+    result = resilient3.predict([5.0])
+    assert result == [5.0], f"Expected [5.0], got {result}"
+    print("✓ ResilientMLModel with circuit breaker + retry")
+    
+    print("✓ ResilientMLModel works correctly")
+
+
+def test_fallback_strategy():
+    """Test FallbackStrategy"""
+    print("\n" + "="*60)
+    print("TEST: FallbackStrategy")
+    print("="*60)
+    
+    # Create fallback that returns default value
+    def fallback_fn(error: Exception) -> List[float]:
+        return [0.0]
+    
+    fallback = FallbackStrategy(fallback_fn)
+    
+    # Test fallback execution
+    def failing_fn():
+        raise RuntimeError("Always fails")
+    
+    result = fallback.execute(failing_fn)
+    assert result == [0.0], f"Expected [0.0], got {result}"
+    print("✓ Fallback executes on failure")
+    
+    # Test successful execution (no fallback)
+    def success_fn():
+        return [1.0, 2.0]
+    
+    result = fallback.execute(success_fn)
+    assert result == [1.0, 2.0], f"Expected [1.0, 2.0], got {result}"
+    print("✓ Fallback skipped on success")
+    
+    print("✓ FallbackStrategy works correctly")
+
+
+def run_all_tests():
+    """Run all resilience tests"""
+    print("\n" + "="*70)
+    print("ML RESILIENCE TEST SUITE")
+    print("="*70)
+    
+    try:
+        test_circuit_breaker_states()
+        test_circuit_breaker_execution()
+        test_retry_policy()
+        test_timeout_guard()
+        test_resilient_ml_model()
+        test_fallback_strategy()
+        
+        print("\n" + "="*70)
+        print("✅ ALL RESILIENCE TESTS PASSED")
+        print("="*70)
+        
+    except AssertionError as e:
+        print(f"\n❌ TEST FAILED: {e}")
+        raise
+    except Exception as e:
+        print(f"\n❌ UNEXPECTED ERROR: {e}")
+        raise
+
+
+# Run tests
+run_all_tests()

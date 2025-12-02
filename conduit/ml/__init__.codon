@@ -1,8 +1,36 @@
-"""
-Conduit ML Module
+# Conduit ML Module
+# Machine Learning inference integration for Conduit framework
 
-Machine learning inference support.
-"""
+from .loader import load_model, ModelCache
+from .inference import InferenceEngine, ModelError
+from .streaming import StreamingInferenceEngine, StreamChunk, SSEFormatter, create_streaming_engine
+from .pipeline import (
+    MLPipeline, PipelineStage, EnsemblePredictor, PipelineBuilder,
+    ConditionalPipeline, create_pipeline, create_ensemble, PipelineError
+)
+from .vectors import (
+    VectorDB, VectorDocument, SearchResult, RAGPipeline,
+    EmbeddingGenerator, SimpleTFIDFEmbedding,
+    create_vector_db, create_rag_pipeline, VectorDBError
+)
+from .onnx_support import (
+    ONNXModel, ONNXRuntime, DeviceManager, DeviceType,
+    load_onnx_model, is_onnx_available, get_onnx_providers, has_gpu_support,
+    ONNXError, ONNXNotInstalledError
+)
+from . import resilience
 
-# Will be populated when we implement ML components
-__all__ = []
+__all__ = [
+    "load_model", "ModelCache", 
+    "InferenceEngine", "ModelError",
+    "StreamingInferenceEngine", "StreamChunk", "SSEFormatter", "create_streaming_engine",
+    "MLPipeline", "PipelineStage", "EnsemblePredictor", "PipelineBuilder",
+    "ConditionalPipeline", "create_pipeline", "create_ensemble", "PipelineError",
+    "VectorDB", "VectorDocument", "SearchResult", "RAGPipeline",
+    "EmbeddingGenerator", "SimpleTFIDFEmbedding",
+    "create_vector_db", "create_rag_pipeline", "VectorDBError",
+    "ONNXModel", "ONNXRuntime", "DeviceManager", "DeviceType",
+    "load_onnx_model", "is_onnx_available", "get_onnx_providers", "has_gpu_support",
+    "ONNXError", "ONNXNotInstalledError",
+    "resilience"
+]

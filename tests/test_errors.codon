@@ -1,0 +1,212 @@
+"""
+Test Error Handling Module
+
+Tests for HTTPError hierarchy, error middleware, and error handling.
+"""
+
+from conduit.framework.errors import (
+    HTTPError,
+    BadRequestError,
+    UnauthorizedError,
+    ForbiddenError,
+    NotFoundError,
+    MethodNotAllowedError,
+    ConflictError,
+    UnprocessableEntityError,
+    TooManyRequestsError,
+    InternalServerError,
+    NotImplementedError,
+    BadGatewayError,
+    ServiceUnavailableError,
+    GatewayTimeoutError,
+    ModelNotFoundError,
+    InferenceError,
+    ValidationError as MLValidationError,
+    abort,
+    ErrorMiddleware,
+    NotFoundMiddleware
+)
+
+from conduit import Conduit, Request, Response
+
+
+def test_http_error_hierarchy():
+    """Test HTTPError base class and hierarchy"""
+    print("\n" + "="*60)
+    print("TEST: HTTPError Hierarchy")
+    print("="*60)
+    
+    # Test BadRequestError (400)
+    try:
+        raise BadRequestError("Invalid input", "Missing field 'name'")
+    except HTTPError as e:
+        assert e.status_code == 400, f"Expected 400, got {e.status_code}"
+        assert e.message == "Invalid input", f"Wrong message: {e.message}"
+        assert e.details == "Missing field 'name'", f"Wrong details: {e.details}"
+        print("✓ BadRequestError (400)")
+    
+    # Test UnauthorizedError (401)
+    try:
+        raise UnauthorizedError("Authentication required")
+    except HTTPError as e:
+        assert e.status_code == 401
+        print("✓ UnauthorizedError (401)")
+    
+    # Test ForbiddenError (403)
+    try:
+        raise ForbiddenError("Access denied")
+    except HTTPError as e:
+        assert e.status_code == 403
+        print("✓ ForbiddenError (403)")
+    
+    # Test NotFoundError (404)
+    try:
+        raise NotFoundError("Resource not found")
+    except HTTPError as e:
+        assert e.status_code == 404
+        print("✓ NotFoundError (404)")
+    
+    # Test TooManyRequestsError (429)
+    try:
+        raise TooManyRequestsError("Rate limit exceeded")
+    except HTTPError as e:
+        assert e.status_code == 429
+        print("✓ TooManyRequestsError (429)")
+    
+    # Test InternalServerError (500)
+    try:
+        raise InternalServerError("Server error")
+    except HTTPError as e:
+        assert e.status_code == 500
+        print("✓ InternalServerError (500)")
+    
+    # Test ServiceUnavailableError (503)
+    try:
+        raise ServiceUnavailableError("Service unavailable")
+    except HTTPError as e:
+        assert e.status_code == 503
+        print("✓ ServiceUnavailableError (503)")
+    
+    print("✓ All HTTP error types work correctly")
+
+
+def test_ml_errors():
+    """Test ML-specific error types"""
+    print("\n" + "="*60)
+    print("TEST: ML Error Types")
+    print("="*60)
+    
+    # Test ModelNotFoundError
+    try:
+        raise ModelNotFoundError("Model 'bert-base' not found")
+    except HTTPError as e:
+        assert e.status_code == 404
+        assert "bert-base" in e.message
+        print("✓ ModelNotFoundError")
+    
+    # Test InferenceError
+    try:
+        raise InferenceError("Model prediction failed", "Invalid tensor shape")
+    except HTTPError as e:
+        assert e.status_code == 500
+        assert "prediction failed" in e.message
+        print("✓ InferenceError")
+    
+    # Test MLValidationError
+    try:
+        raise MLValidationError("Invalid input shape", "Expected (1, 768), got (1, 512)")
+    except HTTPError as e:
+        assert e.status_code == 422
+        assert "shape" in e.message
+        print("✓ MLValidationError")
+    
+    print("✓ All ML error types work correctly")
+
+
+def test_abort_function():
+    """Test abort() convenience function"""
+    print("\n" + "="*60)
+    print("TEST: abort() Function")
+    print("="*60)
+    
+    # Test abort with 400
+    try:
+        abort(400, "Bad request")
+    except BadRequestError as e:
+        assert e.status_code == 400
+        assert e.message == "Bad request"
+        print("✓ abort(400)")
+    
+    # Test abort with 404
+    try:
+        abort(404, "Not found", "Resource ID 123")
+    except NotFoundError as e:
+        assert e.status_code == 404
+        assert e.message == "Not found"
+        assert e.details == "Resource ID 123"
+        print("✓ abort(404)")
+    
+    # Test abort with 500
+    try:
+        abort(500, "Internal error")
+    except InternalServerError as e:
+        assert e.status_code == 500
+        print("✓ abort(500)")
+    
+    print("✓ abort() function works correctly")
+
+
+def test_error_to_json():
+    """Test error JSON serialization"""
+    print("\n" + "="*60)
+    print("TEST: Error JSON Serialization")
+    print("="*60)
+    
+    # Test with details
+    error = BadRequestError("Invalid input", "Missing field 'email'")
+    json_dict = error.to_json()
+    
+    assert "error" in json_dict, "Missing 'error' key"
+    assert json_dict["error"]["status"] == 400, f"Wrong status: {json_dict['error']['status']}"
+    assert json_dict["error"]["message"] == "Invalid input", f"Wrong message"
+    assert json_dict["error"]["details"] == "Missing field 'email'", f"Wrong details"
+    print("✓ JSON with details")
+    
+    # Test without details
+    error = NotFoundError("Resource not found")
+    json_dict = error.to_json()
+    
+    assert json_dict["error"]["status"] == 404
+    assert json_dict["error"]["message"] == "Resource not found"
+    assert json_dict["error"]["details"] == "", "Details should be empty string"
+    print("✓ JSON without details")
+    
+    print("✓ Error JSON serialization works correctly")
+
+
+def run_all_tests():
+    """Run all error handling tests"""
+    print("\n" + "="*70)
+    print("ERROR HANDLING TEST SUITE")
+    print("="*70)
+    
+    try:
+        test_http_error_hierarchy()
+        test_ml_errors()
+        test_abort_function()
+        test_error_to_json()
+        
+        print("\n" + "="*70)
+        print("✅ ALL ERROR HANDLING TESTS PASSED")
+        print("="*70)
+        
+    except AssertionError as e:
+        print(f"\n❌ TEST FAILED: {e}")
+        raise
+    except Exception as e:
+        print(f"\n❌ UNEXPECTED ERROR: {e}")
+        raise
+
+
+# Run tests
+run_all_tests()

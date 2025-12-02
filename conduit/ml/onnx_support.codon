@@ -1,0 +1,384 @@
+# Conduit ML ONNX Support Module
+# Production-grade ONNX Runtime integration with GPU acceleration
+
+from typing import Dict, Any, Optional, List, Tuple
+import numpy as np
+from conduit.ml.loader import BaseModel, ModelError
+
+# ONNX-specific errors
+class ONNXError(ModelError):
+    """Base exception for ONNX-related errors"""
+    pass
+
+class ONNXRuntimeError(ONNXError):
+    """Raised when ONNX Runtime operations fail"""
+    pass
+
+class ONNXNotInstalledError(ONNXError):
+    """Raised when ONNX Runtime is not available"""
+    pass
+
+# Device types
+class DeviceType:
+    """Available computation devices"""
+    CPU = "cpu"
+    CUDA = "cuda"
+    TENSORRT = "tensorrt"
+    OPENVINO = "openvino"
+    COREML = "coreml"
+
+# ONNX Runtime wrapper
+class ONNXRuntime:
+    """
+    ONNX Runtime wrapper with device management
+    
+    Provides unified interface for running ONNX models on various
+    execution providers (CPU, CUDA, TensorRT, etc.)
+    """
+    
+    def __init__(self):
+        """Initialize ONNX Runtime"""
+        self.available = False
+        self.ort = None
+        self.providers: List[str] = []
+        
+        try:
+            import onnxruntime as ort
+            self.ort = ort
+            self.available = True
+            self.providers = ort.get_available_providers()
+        except ImportError:
+            # ONNX Runtime not installed
+            pass
+    
+    def is_available(self) -> bool:
+        """Check if ONNX Runtime is available"""
+        return self.available
+    
+    def get_providers(self) -> List[str]:
+        """Get list of available execution providers"""
+        return self.providers.copy() if self.providers else []
+    
+    def has_gpu_support(self) -> bool:
+        """Check if GPU acceleration is available"""
+        if not self.available:
+            return False
+        
+        gpu_providers = ['CUDAExecutionProvider', 'TensorrtExecutionProvider']
+        return any(p in self.providers for p in gpu_providers)
+    
+    def get_optimal_providers(self, device: str = "auto") -> List[str]:
+        """
+        Get optimal execution providers for device
+        
+        Args:
+            device: Target device ('auto', 'cpu', 'cuda', 'tensorrt')
+            
+        Returns:
+            List of providers in priority order
+        """
+        if not self.available:
+            return []
+        
+        if device == "auto":
+            # Return all providers in optimal order
+            return self.providers
+        
+        elif device == "cpu":
+            return ['CPUExecutionProvider']
+        
+        elif device == "cuda":
+            if 'CUDAExecutionProvider' in self.providers:
+                return ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            else:
+                return ['CPUExecutionProvider']
+        
+        elif device == "tensorrt":
+            if 'TensorrtExecutionProvider' in self.providers:
+                return ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+            else:
+                return ['CPUExecutionProvider']
+        
+        else:
+            # Default to CPU
+            return ['CPUExecutionProvider']
+    
+    def create_session(self, model_path: str, providers: Optional[List[str]] = None):
+        """
+        Create ONNX inference session
+        
+        Args:
+            model_path: Path to ONNX model
+            providers: Execution providers (None = auto)
+            
+        Returns:
+            InferenceSession
+        """
+        if not self.available:
+            raise ONNXNotInstalledError("ONNX Runtime is not installed")
+        
+        if providers is None:
+            providers = self.get_optimal_providers("auto")
+        
+        try:
+            session = self.ort.InferenceSession(model_path, providers=providers)
+            return session
+        except Exception as e:
+            raise ONNXRuntimeError(f"Failed to create session: {str(e)}")
+
+# Global ONNX Runtime instance
+_onnx_runtime = ONNXRuntime()
+
+# Enhanced ONNX Model wrapper
+class ONNXModel(BaseModel):
+    """
+    Production-ready ONNX model wrapper
+    
+    Features:
+    - GPU acceleration (CUDA, TensorRT)
+    - Automatic device detection
+    - Input/output shape inference
+    - Batch processing
+    - Performance optimization
+    """
+    
+    def __init__(self, model_path: str, device: str = "auto"):
+        """
+        Initialize ONNX model
+        
+        Args:
+            model_path: Path to .onnx model file
+            device: Target device ('auto', 'cpu', 'cuda', 'tensorrt')
+        """
+        # Check if ONNX Runtime is available
+        if not _onnx_runtime.is_available():
+            raise ONNXNotInstalledError(
+                "ONNX Runtime not installed. Install with: pip install onnxruntime"
+            )
+        
+        self.model_path = model_path
+        self.device = device
+        
+        # Get optimal providers
+        self.providers = _onnx_runtime.get_optimal_providers(device)
+        
+        # Create session
+        try:
+            self.session = _onnx_runtime.create_session(model_path, self.providers)
+        except Exception as e:
+            raise ONNXRuntimeError(f"Failed to load ONNX model: {str(e)}")
+        
+        # Extract model metadata
+        self.input_info = self._get_input_info()
+        self.output_info = self._get_output_info()
+        
+        # Statistics
+        self.inference_count = 0
+        self.total_time = 0.0
+        
+        # Initialize base class
+        super().__init__(self.session, model_path)
+    
+    def _get_input_info(self) -> List[Dict[str, Any]]:
+        """Extract input tensor information"""
+        inputs = []
+        
+        for inp in self.session.get_inputs():
+            info = {
+                "name": inp.name,
+                "shape": inp.shape,
+                "type": inp.type,
+            }
+            inputs.append(info)
+        
+        return inputs
+    
+    def _get_output_info(self) -> List[Dict[str, Any]]:
+        """Extract output tensor information"""
+        outputs = []
+        
+        for out in self.session.get_outputs():
+            info = {
+                "name": out.name,
+                "shape": out.shape,
+                "type": out.type,
+            }
+            outputs.append(info)
+        
+        return outputs
+    
+    def predict(self, input_data: Any) -> Any:
+        """
+        Run inference on input data
+        
+        Args:
+            input_data: Input tensor(s) as numpy array or dict
+            
+        Returns:
+            Model output(s)
+        """
+        import time
+        start_time = time.time()
+        
+        try:
+            # Prepare input
+            if isinstance(input_data, dict):
+                # Named inputs
+                ort_inputs = input_data
+            elif isinstance(input_data, (list, tuple)):
+                # Multiple unnamed inputs
+                ort_inputs = {
+                    self.input_info[i]["name"]: inp
+                    for i, inp in enumerate(input_data)
+                }
+            else:
+                # Single input
+                ort_inputs = {self.input_info[0]["name"]: input_data}
+            
+            # Run inference
+            outputs = self.session.run(None, ort_inputs)
+            
+            # Update statistics
+            self.inference_count += 1
+            self.total_time += (time.time() - start_time)
+            
+            # Return single output or list
+            if len(outputs) == 1:
+                return outputs[0]
+            else:
+                return outputs
+                
+        except Exception as e:
+            raise ONNXRuntimeError(f"Inference failed: {str(e)}")
+    
+    def predict_batch(self, batch_data: List[Any]) -> List[Any]:
+        """
+        Run inference on batch of inputs
+        
+        Args:
+            batch_data: List of input tensors
+            
+        Returns:
+            List of outputs
+        """
+        results = []
+        for data in batch_data:
+            result = self.predict(data)
+            results.append(result)
+        return results
+    
+    def get_info(self) -> Dict[str, Any]:
+        """Get comprehensive model information"""
+        info = super().get_info()
+        
+        info.update({
+            "device": self.device,
+            "providers": self.providers,
+            "active_provider": self.session.get_providers()[0] if self.session.get_providers() else "unknown",
+            "num_inputs": len(self.input_info),
+            "num_outputs": len(self.output_info),
+            "inputs": self.input_info,
+            "outputs": self.output_info,
+            "inference_count": self.inference_count,
+            "avg_time_ms": round((self.total_time / self.inference_count) * 1000, 2) if self.inference_count > 0 else 0
+        })
+        
+        return info
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get inference statistics"""
+        avg_time = self.total_time / self.inference_count if self.inference_count > 0 else 0
+        
+        return {
+            "inference_count": self.inference_count,
+            "total_time": round(self.total_time, 3),
+            "avg_time_ms": round(avg_time * 1000, 2),
+            "inferences_per_sec": int(1 / avg_time) if avg_time > 0 else 0,
+            "device": self.device,
+            "provider": self.session.get_providers()[0] if self.session.get_providers() else "unknown"
+        }
+    
+    def warmup(self, num_runs: int = 10):
+        """
+        Warmup the model with dummy inputs
+        
+        Useful for GPU models to initialize CUDA kernels
+        
+        Args:
+            num_runs: Number of warmup runs
+        """
+        # Create dummy input
+        dummy_input = {}
+        for inp_info in self.input_info:
+            shape = inp_info["shape"]
+            # Replace dynamic dimensions with 1
+            static_shape = [s if isinstance(s, int) else 1 for s in shape]
+            dummy_input[inp_info["name"]] = np.random.randn(*static_shape).astype(np.float32)
+        
+        # Run warmup
+        for _ in range(num_runs):
+            self.predict(dummy_input)
+
+# Device utilities
+class DeviceManager:
+    """Utility for device detection and management"""
+    
+    @staticmethod
+    def get_available_devices() -> List[str]:
+        """Get list of available devices"""
+        devices = ["cpu"]
+        
+        if _onnx_runtime.has_gpu_support():
+            devices.append("cuda")
+            
+            # Check for TensorRT
+            if "TensorrtExecutionProvider" in _onnx_runtime.get_providers():
+                devices.append("tensorrt")
+        
+        return devices
+    
+    @staticmethod
+    def get_default_device() -> str:
+        """Get default device (prefer GPU if available)"""
+        if _onnx_runtime.has_gpu_support():
+            return "cuda"
+        return "cpu"
+    
+    @staticmethod
+    def get_device_info() -> Dict[str, Any]:
+        """Get detailed device information"""
+        info = {
+            "onnx_runtime_available": _onnx_runtime.is_available(),
+            "available_providers": _onnx_runtime.get_providers(),
+            "gpu_support": _onnx_runtime.has_gpu_support(),
+            "available_devices": DeviceManager.get_available_devices(),
+            "default_device": DeviceManager.get_default_device()
+        }
+        
+        return info
+
+# Utility functions
+def load_onnx_model(model_path: str, device: str = "auto") -> ONNXModel:
+    """
+    Load an ONNX model
+    
+    Args:
+        model_path: Path to .onnx file
+        device: Target device ('auto', 'cpu', 'cuda', 'tensorrt')
+        
+    Returns:
+        ONNXModel instance
+    """
+    return ONNXModel(model_path, device)
+
+def is_onnx_available() -> bool:
+    """Check if ONNX Runtime is available"""
+    return _onnx_runtime.is_available()
+
+def get_onnx_providers() -> List[str]:
+    """Get available ONNX execution providers"""
+    return _onnx_runtime.get_providers()
+
+def has_gpu_support() -> bool:
+    """Check if GPU acceleration is available"""
+    return _onnx_runtime.has_gpu_support()

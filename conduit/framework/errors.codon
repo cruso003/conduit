@@ -1,0 +1,272 @@
+"""
+Conduit Error Handling Module
+
+Provides comprehensive error types, middleware, and handlers
+for production-grade error management.
+"""
+
+from python import json
+
+
+class HTTPError(Exception):
+    """Base HTTP error class"""
+    
+    def __init__(self, status_code: int, message: str, details: str = ""):
+        self.status_code = status_code
+        self.message = message
+        self.details = details
+        super().__init__(message)
+    
+    def to_json(self) -> str:
+        """Convert error to JSON response"""
+        error_dict = {
+            "error": {
+                "status": self.status_code,
+                "message": self.message,
+                "type": self.__class__.__name__
+            }
+        }
+        
+        if self.details:
+            error_dict["error"]["details"] = self.details
+        
+        return json.dumps(error_dict)
+
+
+# 4xx Client Errors
+class BadRequestError(HTTPError):
+    """400 Bad Request"""
+    def __init__(self, message: str = "Bad Request", details: str = ""):
+        super().__init__(400, message, details)
+
+
+class UnauthorizedError(HTTPError):
+    """401 Unauthorized"""
+    def __init__(self, message: str = "Unauthorized", details: str = ""):
+        super().__init__(401, message, details)
+
+
+class ForbiddenError(HTTPError):
+    """403 Forbidden"""
+    def __init__(self, message: str = "Forbidden", details: str = ""):
+        super().__init__(403, message, details)
+
+
+class NotFoundError(HTTPError):
+    """404 Not Found"""
+    def __init__(self, message: str = "Not Found", details: str = ""):
+        super().__init__(404, message, details)
+
+
+class MethodNotAllowedError(HTTPError):
+    """405 Method Not Allowed"""
+    def __init__(self, message: str = "Method Not Allowed", details: str = ""):
+        super().__init__(405, message, details)
+
+
+class ConflictError(HTTPError):
+    """409 Conflict"""
+    def __init__(self, message: str = "Conflict", details: str = ""):
+        super().__init__(409, message, details)
+
+
+class UnprocessableEntityError(HTTPError):
+    """422 Unprocessable Entity"""
+    def __init__(self, message: str = "Unprocessable Entity", details: str = ""):
+        super().__init__(422, message, details)
+
+
+class TooManyRequestsError(HTTPError):
+    """429 Too Many Requests"""
+    def __init__(self, message: str = "Too Many Requests", details: str = ""):
+        super().__init__(429, message, details)
+
+
+# 5xx Server Errors
+class InternalServerError(HTTPError):
+    """500 Internal Server Error"""
+    def __init__(self, message: str = "Internal Server Error", details: str = ""):
+        super().__init__(500, message, details)
+
+
+class NotImplementedError(HTTPError):
+    """501 Not Implemented"""
+    def __init__(self, message: str = "Not Implemented", details: str = ""):
+        super().__init__(501, message, details)
+
+
+class BadGatewayError(HTTPError):
+    """502 Bad Gateway"""
+    def __init__(self, message: str = "Bad Gateway", details: str = ""):
+        super().__init__(502, message, details)
+
+
+class ServiceUnavailableError(HTTPError):
+    """503 Service Unavailable"""
+    def __init__(self, message: str = "Service Unavailable", details: str = ""):
+        super().__init__(503, message, details)
+
+
+class GatewayTimeoutError(HTTPError):
+    """504 Gateway Timeout"""
+    def __init__(self, message: str = "Gateway Timeout", details: str = ""):
+        super().__init__(504, message, details)
+
+
+# ML-specific errors
+class ModelNotFoundError(HTTPError):
+    """Model not found error"""
+    def __init__(self, model_name: str):
+        super().__init__(
+            404,
+            f"Model not found: {model_name}",
+            f"The requested model '{model_name}' could not be found"
+        )
+
+
+class ModelLoadError(HTTPError):
+    """Model load error"""
+    def __init__(self, model_name: str, reason: str):
+        super().__init__(
+            500,
+            f"Failed to load model: {model_name}",
+            reason
+        )
+
+
+class InferenceError(HTTPError):
+    """Inference error"""
+    def __init__(self, message: str, details: str = ""):
+        super().__init__(500, f"Inference failed: {message}", details)
+
+
+class ValidationError(HTTPError):
+    """Input validation error"""
+    def __init__(self, field: str, message: str):
+        super().__init__(
+            400,
+            f"Validation failed: {field}",
+            message
+        )
+
+
+class ErrorMiddleware:
+    """
+    Error handling middleware
+    
+    Catches exceptions and converts them to proper HTTP responses.
+    """
+    
+    def __init__(self, log_errors: bool = True):
+        self.log_errors = log_errors
+    
+    def handle(self, req, res, next_handler):
+        """Handle request with error catching"""
+        try:
+            # Call next handler
+            next_handler(req, res)
+            
+        except HTTPError as e:
+            # Handle known HTTP errors
+            if self.log_errors:
+                print(f"[ERROR] {e.status_code} - {e.message}")
+                if e.details:
+                    print(f"  Details: {e.details}")
+            
+            res.status(e.status_code)
+            res.header("Content-Type", "application/json")
+            res.send(e.to_json())
+            
+        except Exception as e:
+            # Handle unknown errors
+            if self.log_errors:
+                print(f"[ERROR] Unhandled exception: {str(e)}")
+            
+            error = InternalServerError(
+                "An unexpected error occurred",
+                str(e)
+            )
+            res.status(500)
+            res.header("Content-Type", "application/json")
+            res.send(error.to_json())
+
+
+class NotFoundMiddleware:
+    """
+    404 Not Found middleware
+    
+    Handles routes that don't exist.
+    """
+    
+    def handle(self, req, res, next_handler):
+        """Check if route exists"""
+        # This would be called last in middleware chain
+        # If we get here, route wasn't found
+        error = NotFoundError(
+            f"Route not found: {req.method} {req.path}",
+            f"The requested endpoint does not exist"
+        )
+        
+        res.status(404)
+        res.header("Content-Type", "application/json")
+        res.send(error.to_json())
+
+
+def error_handler(log_errors: bool = True):
+    """
+    Create error handling middleware
+    
+    Usage:
+        app.use(error_handler())
+    """
+    return ErrorMiddleware(log_errors)
+
+
+def not_found_handler():
+    """
+    Create 404 not found middleware
+    
+    Usage:
+        app.use(not_found_handler())  # Add last
+    """
+    return NotFoundMiddleware()
+
+
+# Convenience functions for raising errors
+def abort(status_code: int, message: str = "", details: str = ""):
+    """
+    Abort request with HTTP error
+    
+    Args:
+        status_code: HTTP status code
+        message: Error message
+        details: Additional details
+    """
+    if status_code == 400:
+        raise BadRequestError(message or "Bad Request", details)
+    elif status_code == 401:
+        raise UnauthorizedError(message or "Unauthorized", details)
+    elif status_code == 403:
+        raise ForbiddenError(message or "Forbidden", details)
+    elif status_code == 404:
+        raise NotFoundError(message or "Not Found", details)
+    elif status_code == 405:
+        raise MethodNotAllowedError(message or "Method Not Allowed", details)
+    elif status_code == 409:
+        raise ConflictError(message or "Conflict", details)
+    elif status_code == 422:
+        raise UnprocessableEntityError(message or "Unprocessable Entity", details)
+    elif status_code == 429:
+        raise TooManyRequestsError(message or "Too Many Requests", details)
+    elif status_code == 500:
+        raise InternalServerError(message or "Internal Server Error", details)
+    elif status_code == 501:
+        raise NotImplementedError(message or "Not Implemented", details)
+    elif status_code == 502:
+        raise BadGatewayError(message or "Bad Gateway", details)
+    elif status_code == 503:
+        raise ServiceUnavailableError(message or "Service Unavailable", details)
+    elif status_code == 504:
+        raise GatewayTimeoutError(message or "Gateway Timeout", details)
+    else:
+        raise HTTPError(status_code, message or "Error", details)

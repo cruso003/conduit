@@ -1,12 +1,168 @@
 # Contributing to Conduit
 
-First off, thank you for considering contributing to Conduit! 🎉
+Thank you for your interest in contributing to Conduit! This document provides guidelines and instructions for contributing to the project.
+
+## Table of Contents
+
+- [Code of Conduct](#code-of-conduct)
+- [Getting Started](#getting-started)
+- [Development Setup](#development-setup)
+- [Project Structure](#project-structure)
+- [Contribution Workflow](#contribution-workflow)
+- [Coding Standards](#coding-standards)
+- [Testing](#testing)
+- [Documentation](#documentation)
+- [Pull Request Process](#pull-request-process)
+- [Community](#community)
 
 ## Code of Conduct
 
-Be respectful, inclusive, and constructive. We're all here to build something cool.
+This project adheres to a Code of Conduct that promotes a welcoming and inclusive environment. Be respectful, constructive, and collaborative. Report unacceptable behavior to the maintainers.
 
-## How Can I Contribute?
+## Getting Started
+
+### Prerequisites
+
+- **Codon 0.16+**: [Installation guide](https://docs.exaloop.io/codon/general/install)
+- **Git**: For version control
+- **Linux or macOS**: Conduit currently supports Unix-like systems
+- **C++ Compiler**: GCC 9+ or Clang 10+ (for building Codon plugins)
+
+### Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/cruso003/conduit.git
+cd conduit
+
+# Build Conduit
+./scripts/build.sh
+
+# Run tests
+./scripts/run_tests.sh
+
+# Try an example
+codon run examples/hello_world.codon
+```
+
+## Development Setup
+
+### 1. Fork and Clone
+
+```bash
+# Fork the repository on GitHub, then:
+git clone https://github.com/YOUR_USERNAME/conduit.git
+cd conduit
+git remote add upstream https://github.com/cruso003/conduit.git
+```
+
+### 2. Install Development Dependencies
+
+````bash
+# Install Codon (if not already installed)
+### PR Template
+
+```markdown
+## Description
+Brief description of changes
+
+## Motivation
+Why is this change needed?
+
+## Changes
+- Change 1
+- Change 2
+
+## Testing
+How were these changes tested?
+
+## Checklist
+- [ ] Tests pass
+- [ ] Documentation updated
+- [ ] No breaking changes (or documented)
+````
+
+### Review Process
+
+1. **Automated Checks**: CI runs tests and linting
+2. **Code Review**: Maintainer reviews code
+3. **Feedback**: Address review comments
+4. **Approval**: Once approved, PR is merged
+
+````
+
+### Best Practices
+
+1. **Type Annotations**: Always use type hints
+2. **Error Handling**: Explicit error handling, no silent failures
+3. **Documentation**: Docstrings for public functions/classes
+4. **Performance**: Consider performance implications
+5. **Memory Safety**: Avoid leaks, manage resources properly
+
+## Testing
+
+### Writing Tests
+
+```python
+# tests/test_my_feature.codon
+from conduit import Conduit
+
+def test_route_matching():
+    """Test that routes match correctly"""
+    app = Conduit()
+
+    @app.get("/users/:id")
+    def get_user(req):
+        return {"id": req.params["id"]}
+
+    assert True, "Route matched successfully"
+
+test_route_matching()
+print("✓ All tests passed")
+````
+
+### Running Tests
+
+```bash
+# Run all tests
+./scripts/run_tests.sh
+
+# Run specific test
+codon run tests/test_routes.codon
+```
+
+## Documentation
+
+### Code Documentation
+
+```python
+def my_function(param: str, count: int = 1) -> list[str]:
+    """
+    Brief description of what the function does.
+
+    Args:
+        param: Description of param
+        count: Description of count (default: 1)
+
+    Returns:
+        Description of return value
+
+    Example:
+        >>> my_function("hello", 2)
+        ["hello", "hello"]
+    """
+    pass
+```
+
+## Pull Request Process
+
+### Before Submitting
+
+- [ ] Code follows style guidelines
+- [ ] Tests added for new functionality
+- [ ] All tests pass locally
+- [ ] Documentation updated
+- [ ] Commit messages are clear
 
 ### Reporting Bugs
 
@@ -165,5 +321,43 @@ Contributors will be listed in:
 - README.md (Contributors section)
 - CHANGELOG.md (for significant contributions)
 - Release notes
+
+Thank you for contributing to Conduit! 🚀
+
+## Community
+
+### Getting Help
+
+- **GitHub Discussions**: [Ask questions](https://github.com/cruso003/conduit/discussions)
+- **Discord**: [Join our community](https://discord.gg/conduit)
+- **Issues**: [Report bugs](https://github.com/cruso003/conduit/issues)
+
+### Areas to Contribute
+
+**Good First Issues:**
+
+- Documentation improvements
+- Example applications
+- Test coverage improvements
+- Bug fixes
+
+**Advanced:**
+
+- Performance optimizations
+- New framework features
+- MCP protocol enhancements
+- ML inference improvements
+
+### Recognition
+
+Contributors are recognized in:
+
+- [CONTRIBUTORS.md](CONTRIBUTORS.md)
+- Release notes
+- Project README
+
+---
+
+**Questions?** Open a [discussion](https://github.com/cruso003/conduit/discussions) or ask in [Discord](https://discord.gg/conduit).
 
 Thank you for contributing to Conduit! 🚀

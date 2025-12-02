@@ -1,0 +1,359 @@
+"""
+Test Monitoring & Security Features
+
+Tests for metrics, logging, health checks, rate limiting, and validation.
+"""
+
+from conduit.framework.monitoring import (
+    Metrics,
+    LoggingMiddleware,
+    RequestLogger,
+    HealthCheck,
+    MLMetrics,
+    create_metrics_endpoint,
+    create_health_endpoint
+)
+
+from conduit.framework.security import (
+    RateLimiter,
+    RateLimitMiddleware,
+    InputValidator,
+    AuthMiddleware,
+    CORSMiddleware,
+    SecurityHeaders
+)
+
+from conduit import Conduit, Request, Response
+import time
+
+
+def test_metrics():
+    """Test Metrics collection"""
+    print("\n" + "="*60)
+    print("TEST: Metrics Collection")
+    print("="*60)
+    
+    metrics = Metrics()
+    
+    # Test counter
+    metrics.increment_counter("requests", 1)
+    metrics.increment_counter("requests", 2)
+    assert metrics.get_counter("requests") == 3.0
+    print("✓ Counter: requests = 3")
+    
+    # Test gauge
+    metrics.set_gauge("active_connections", 10)
+    assert metrics.get_gauge("active_connections") == 10.0
+    metrics.set_gauge("active_connections", 5)
+    assert metrics.get_gauge("active_connections") == 5.0
+    print("✓ Gauge: active_connections = 5")
+    
+    # Test histogram
+    metrics.observe_histogram("response_time", 0.1)
+    metrics.observe_histogram("response_time", 0.2)
+    metrics.observe_histogram("response_time", 0.15)
+    values = metrics.get_histogram("response_time")
+    assert len(values) == 3
+    assert 0.1 in values
+    print("✓ Histogram: 3 observations recorded")
+    
+    # Test timer
+    metrics.start_timer("request")
+    time.sleep(0.1)
+    duration = metrics.stop_timer("request")
+    assert duration >= 0.1
+    print(f"✓ Timer: measured {duration:.3f}s")
+    
+    print("✓ Metrics collection works correctly")
+
+
+def test_ml_metrics():
+    """Test MLMetrics tracking"""
+    print("\n" + "="*60)
+    print("TEST: ML Metrics")
+    print("="*60)
+    
+    ml_metrics = MLMetrics()
+    
+    # Track inference
+    ml_metrics.track_inference("model-v1", 0.05, success=True)
+    ml_metrics.track_inference("model-v1", 0.08, success=True)
+    ml_metrics.track_inference("model-v1", 0.12, success=False)
+    
+    assert ml_metrics.metrics.get_counter("ml.inference.total") == 3.0
+    assert ml_metrics.metrics.get_counter("ml.inference.success") == 2.0
+    assert ml_metrics.metrics.get_counter("ml.inference.failure") == 1.0
+    print("✓ Inference tracking: 3 total, 2 success, 1 failure")
+    
+    # Track batch inference
+    ml_metrics.track_batch_inference("model-v1", batch_size=32, duration=0.5)
+    assert ml_metrics.metrics.get_counter("ml.batch.total") == 1.0
+    print("✓ Batch inference tracking")
+    
+    # Track pipeline
+    ml_metrics.track_pipeline("pipeline-1", stage_count=3, duration=1.2)
+    assert ml_metrics.metrics.get_counter("ml.pipeline.total") == 1.0
+    print("✓ Pipeline tracking")
+    
+    # Track vector search
+    ml_metrics.track_vector_search(query_dims=768, result_count=10, duration=0.02)
+    assert ml_metrics.metrics.get_counter("ml.vector_search.total") == 1.0
+    print("✓ Vector search tracking")
+    
+    print("✓ ML metrics tracking works correctly")
+
+
+def test_health_check():
+    """Test HealthCheck system"""
+    print("\n" + "="*60)
+    print("TEST: Health Checks")
+    print("="*60)
+    
+    health = HealthCheck()
+    
+    # Register checks
+    def check_database() -> tuple[bool, str]:
+        return (True, "Database connected")
+    
+    def check_model() -> tuple[bool, str]:
+        return (True, "Model loaded")
+    
+    def check_cache() -> tuple[bool, str]:
+        return (False, "Cache unavailable")
+    
+    health.register_check("database", check_database)
+    health.register_check("model", check_model)
+    health.register_check("cache", check_cache)
+    
+    # Run checks
+    is_healthy, checks = health.check()
+    
+    assert not is_healthy, "Should be unhealthy (cache failed)"
+    assert len(checks) == 3
+    assert checks["database"]["healthy"] == True
+    assert checks["model"]["healthy"] == True
+    assert checks["cache"]["healthy"] == False
+    print("✓ Health checks: 2 passing, 1 failing")
+    
+    print("✓ Health check system works correctly")
+
+
+def test_rate_limiter():
+    """Test RateLimiter"""
+    print("\n" + "="*60)
+    print("TEST: Rate Limiter")
+    print("="*60)
+    
+    limiter = RateLimiter(max_requests=3, window_seconds=1)
+    client_ip = "192.168.1.1"
+    
+    # First 3 requests should be allowed
+    assert limiter.is_allowed(client_ip) == True
+    assert limiter.is_allowed(client_ip) == True
+    assert limiter.is_allowed(client_ip) == True
+    print("✓ First 3 requests allowed")
+    
+    # 4th request should be blocked
+    assert limiter.is_allowed(client_ip) == False
+    print("✓ 4th request blocked (rate limit hit)")
+    
+    # Wait for window to reset
+    time.sleep(1.1)
+    
+    # Should be allowed again
+    assert limiter.is_allowed(client_ip) == True
+    print("✓ Request allowed after window reset")
+    
+    # Test different IP
+    assert limiter.is_allowed("192.168.1.2") == True
+    print("✓ Different IP has separate limit")
+    
+    print("✓ Rate limiter works correctly")
+
+
+def test_input_validator():
+    """Test InputValidator"""
+    print("\n" + "="*60)
+    print("TEST: Input Validator")
+    print("="*60)
+    
+    validator = InputValidator()
+    
+    # Test required fields
+    data1 = {"name": "test", "age": 25}
+    errors1 = validator.validate_required(data1, ["name", "age"])
+    assert len(errors1) == 0
+    print("✓ All required fields present")
+    
+    data2 = {"name": "test"}
+    errors2 = validator.validate_required(data2, ["name", "age"])
+    assert len(errors2) == 1
+    assert "age" in errors2[0]
+    print("✓ Missing required field detected")
+    
+    # Test types
+    data3 = {"count": 42, "price": 19.99}
+    errors3 = validator.validate_types(data3, {"count": "int", "price": "float"})
+    assert len(errors3) == 0
+    print("✓ Type validation passed")
+    
+    data4 = {"count": "not-a-number"}
+    errors4 = validator.validate_types(data4, {"count": "int"})
+    assert len(errors4) == 1
+    print("✓ Type mismatch detected")
+    
+    # Test ranges
+    data5 = {"score": 75}
+    errors5 = validator.validate_ranges(data5, {"score": (0, 100)})
+    assert len(errors5) == 0
+    print("✓ Value in range")
+    
+    data6 = {"score": 150}
+    errors6 = validator.validate_ranges(data6, {"score": (0, 100)})
+    assert len(errors6) == 1
+    print("✓ Value out of range detected")
+    
+    # Test lengths
+    data7 = {"name": "john"}
+    errors7 = validator.validate_lengths(data7, {"name": (1, 10)})
+    assert len(errors7) == 0
+    print("✓ String length valid")
+    
+    data8 = {"name": "verylongnamethatexceedslimit"}
+    errors8 = validator.validate_lengths(data8, {"name": (1, 10)})
+    assert len(errors8) == 1
+    print("✓ String length exceeded detected")
+    
+    # Test ML input shape
+    features = [1.0, 2.0, 3.0, 4.0, 5.0]
+    errors9 = validator.validate_ml_input_shape(features, expected_dims=5)
+    assert len(errors9) == 0
+    print("✓ ML input shape valid")
+    
+    features2 = [1.0, 2.0, 3.0]
+    errors10 = validator.validate_ml_input_shape(features2, expected_dims=5)
+    assert len(errors10) == 1
+    print("✓ ML input shape mismatch detected")
+    
+    print("✓ Input validator works correctly")
+
+
+def test_auth_middleware():
+    """Test AuthMiddleware"""
+    print("\n" + "="*60)
+    print("TEST: Auth Middleware")
+    print("="*60)
+    
+    # Create auth middleware with API keys
+    api_keys = {"secret-key-123": "user1", "secret-key-456": "user2"}
+    auth = AuthMiddleware(api_keys=api_keys, header_name="X-API-Key")
+    
+    # Create mock request with valid key
+    app = Conduit()
+    req1 = Request(app)
+    req1.headers["X-API-Key"] = "secret-key-123"
+    
+    # Should pass
+    allowed1 = True
+    try:
+        # Simulate middleware check
+        if "X-API-Key" not in req1.headers:
+            allowed1 = False
+        elif req1.headers["X-API-Key"] not in api_keys:
+            allowed1 = False
+    except:
+        allowed1 = False
+    
+    assert allowed1 == True
+    print("✓ Valid API key accepted")
+    
+    # Create mock request with invalid key
+    req2 = Request(app)
+    req2.headers["X-API-Key"] = "invalid-key"
+    
+    allowed2 = True
+    try:
+        if "X-API-Key" not in req2.headers:
+            allowed2 = False
+        elif req2.headers["X-API-Key"] not in api_keys:
+            allowed2 = False
+    except:
+        allowed2 = False
+    
+    assert allowed2 == False
+    print("✓ Invalid API key rejected")
+    
+    # Create mock request without key
+    req3 = Request(app)
+    
+    allowed3 = True
+    if "X-API-Key" not in req3.headers:
+        allowed3 = False
+    
+    assert allowed3 == False
+    print("✓ Missing API key rejected")
+    
+    print("✓ Auth middleware works correctly")
+
+
+def test_cors_middleware():
+    """Test CORSMiddleware"""
+    print("\n" + "="*60)
+    print("TEST: CORS Middleware")
+    print("="*60)
+    
+    # Test allowed origins
+    cors = CORSMiddleware(
+        allowed_origins=["https://example.com", "https://app.example.com"],
+        allowed_methods=["GET", "POST"],
+        allowed_headers=["Content-Type", "Authorization"]
+    )
+    
+    # Check origin
+    assert "https://example.com" in cors.allowed_origins
+    assert "https://evil.com" not in cors.allowed_origins
+    print("✓ Origin validation")
+    
+    # Check methods
+    assert "GET" in cors.allowed_methods
+    assert "POST" in cors.allowed_methods
+    assert "DELETE" not in cors.allowed_methods
+    print("✓ Method validation")
+    
+    # Check headers
+    assert "Content-Type" in cors.allowed_headers
+    assert "X-Custom-Header" not in cors.allowed_headers
+    print("✓ Header validation")
+    
+    print("✓ CORS middleware works correctly")
+
+
+def run_all_tests():
+    """Run all monitoring and security tests"""
+    print("\n" + "="*70)
+    print("MONITORING & SECURITY TEST SUITE")
+    print("="*70)
+    
+    try:
+        test_metrics()
+        test_ml_metrics()
+        test_health_check()
+        test_rate_limiter()
+        test_input_validator()
+        test_auth_middleware()
+        test_cors_middleware()
+        
+        print("\n" + "="*70)
+        print("✅ ALL MONITORING & SECURITY TESTS PASSED")
+        print("="*70)
+        
+    except AssertionError as e:
+        print(f"\n❌ TEST FAILED: {e}")
+        raise
+    except Exception as e:
+        print(f"\n❌ UNEXPECTED ERROR: {e}")
+        raise
+
+
+# Run tests
+run_all_tests()

@@ -1,0 +1,582 @@
+# Conduit ML Vector Database Module
+# In-memory vector search for semantic similarity and RAG
+
+from typing import List, Dict, Any, Callable, Optional, Tuple
+import numpy as np
+import time
+import json
+
+# Vector database exceptions
+class VectorDBError(Exception):
+    """Base exception for vector database errors"""
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+class IndexError(VectorDBError):
+    """Raised when indexing operation fails"""
+    pass
+
+class SearchError(VectorDBError):
+    """Raised when search operation fails"""
+    pass
+
+# Distance metrics
+class DistanceMetric:
+    """Distance/similarity metrics for vectors"""
+    
+    @staticmethod
+    def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+        """
+        Cosine similarity between two vectors
+        
+        Args:
+            a: First vector
+            b: Second vector
+            
+        Returns:
+            Similarity score (0 to 1, higher is more similar)
+        """
+        dot_product = np.dot(a, b)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        
+        return float(dot_product / (norm_a * norm_b))
+    
+    @staticmethod
+    def euclidean_distance(a: np.ndarray, b: np.ndarray) -> float:
+        """
+        Euclidean distance between two vectors
+        
+        Args:
+            a: First vector
+            b: Second vector
+            
+        Returns:
+            Distance (lower is more similar)
+        """
+        return float(np.linalg.norm(a - b))
+    
+    @staticmethod
+    def manhattan_distance(a: np.ndarray, b: np.ndarray) -> float:
+        """
+        Manhattan (L1) distance between two vectors
+        
+        Args:
+            a: First vector
+            b: Second vector
+            
+        Returns:
+            Distance (lower is more similar)
+        """
+        return float(np.sum(np.abs(a - b)))
+    
+    @staticmethod
+    def dot_product(a: np.ndarray, b: np.ndarray) -> float:
+        """
+        Dot product similarity
+        
+        Args:
+            a: First vector
+            b: Second vector
+            
+        Returns:
+            Similarity score (higher is more similar)
+        """
+        return float(np.dot(a, b))
+
+# Document with vector embedding
+class VectorDocument:
+    """Document with vector embedding and metadata"""
+    
+    def __init__(self, id: str, vector: np.ndarray, metadata: Dict[str, Any]):
+        """
+        Initialize vector document
+        
+        Args:
+            id: Unique document ID
+            vector: Embedding vector
+            metadata: Document metadata (text, title, etc.)
+        """
+        self.id = id
+        self.vector = vector
+        self.metadata = metadata
+        self.indexed_at = time.time()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            "id": self.id,
+            "vector": self.vector.tolist(),
+            "metadata": self.metadata,
+            "indexed_at": self.indexed_at
+        }
+
+# Search result
+class SearchResult:
+    """Result from vector search"""
+    
+    def __init__(self, document: VectorDocument, score: float, rank: int):
+        """
+        Initialize search result
+        
+        Args:
+            document: The matched document
+            score: Similarity/distance score
+            rank: Result rank (1-based)
+        """
+        self.document = document
+        self.score = score
+        self.rank = rank
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            "id": self.document.id,
+            "score": round(self.score, 4),
+            "rank": self.rank,
+            "metadata": self.document.metadata
+        }
+
+# In-memory vector database
+class VectorDB:
+    """
+    In-memory vector database for semantic search
+    
+    Provides fast similarity search over vector embeddings
+    using various distance metrics.
+    """
+    
+    def __init__(self, name: str = "vectordb", metric: str = "cosine"):
+        """
+        Initialize vector database
+        
+        Args:
+            name: Database name
+            metric: Distance metric ('cosine', 'euclidean', 'manhattan', 'dot')
+        """
+        self.name = name
+        self.metric = metric
+        self.documents: Dict[str, VectorDocument] = {}
+        self.vectors: List[np.ndarray] = []
+        self.doc_ids: List[str] = []
+        
+        # Statistics
+        self.index_count = 0
+        self.search_count = 0
+        self.total_search_time = 0.0
+        
+        # Set distance function
+        self._set_metric(metric)
+    
+    def _set_metric(self, metric: str):
+        """Set the distance metric"""
+        if metric == "cosine":
+            self.distance_fn = DistanceMetric.cosine_similarity
+            self.higher_is_better = True
+        elif metric == "euclidean":
+            self.distance_fn = DistanceMetric.euclidean_distance
+            self.higher_is_better = False
+        elif metric == "manhattan":
+            self.distance_fn = DistanceMetric.manhattan_distance
+            self.higher_is_better = False
+        elif metric == "dot":
+            self.distance_fn = DistanceMetric.dot_product
+            self.higher_is_better = True
+        else:
+            raise VectorDBError(f"Unknown metric: {metric}")
+    
+    def add(self, id: str, vector: np.ndarray, metadata: Dict[str, Any]):
+        """
+        Add a document to the database
+        
+        Args:
+            id: Unique document ID
+            vector: Embedding vector
+            metadata: Document metadata
+        """
+        # Create document
+        doc = VectorDocument(id, vector, metadata)
+        
+        # Add to index
+        self.documents[id] = doc
+        self.vectors.append(vector)
+        self.doc_ids.append(id)
+        
+        self.index_count += 1
+    
+    def add_batch(self, documents: List[Tuple[str, np.ndarray, Dict[str, Any]]]):
+        """
+        Add multiple documents at once
+        
+        Args:
+            documents: List of (id, vector, metadata) tuples
+        """
+        for id, vector, metadata in documents:
+            self.add(id, vector, metadata)
+    
+    def search(self, query_vector: np.ndarray, top_k: int = 5, 
+               filter_fn: Optional[Callable] = None) -> List[SearchResult]:
+        """
+        Search for similar documents
+        
+        Args:
+            query_vector: Query embedding vector
+            top_k: Number of results to return
+            filter_fn: Optional filter function on metadata
+            
+        Returns:
+            List of SearchResult objects, ranked by similarity
+        """
+        start_time = time.time()
+        
+        if len(self.vectors) == 0:
+            return []
+        
+        # Compute distances to all vectors
+        scores = []
+        valid_indices = []
+        
+        for i, (doc_id, vector) in enumerate(zip(self.doc_ids, self.vectors)):
+            # Apply filter if provided
+            if filter_fn and not filter_fn(self.documents[doc_id].metadata):
+                continue
+            
+            score = self.distance_fn(query_vector, vector)
+            scores.append(score)
+            valid_indices.append(i)
+        
+        if not scores:
+            return []
+        
+        # Convert to numpy for efficient sorting
+        scores_array = np.array(scores)
+        
+        # Sort by score
+        if self.higher_is_better:
+            # Higher scores are better (similarity)
+            sorted_indices = np.argsort(scores_array)[::-1][:top_k]
+        else:
+            # Lower scores are better (distance)
+            sorted_indices = np.argsort(scores_array)[:top_k]
+        
+        # Build results
+        results = []
+        for rank, idx in enumerate(sorted_indices, start=1):
+            original_idx = valid_indices[idx]
+            doc_id = self.doc_ids[original_idx]
+            doc = self.documents[doc_id]
+            score = scores[idx]
+            
+            results.append(SearchResult(doc, score, rank))
+        
+        # Update statistics
+        self.search_count += 1
+        self.total_search_time += (time.time() - start_time)
+        
+        return results
+    
+    def get(self, id: str) -> Optional[VectorDocument]:
+        """
+        Get a document by ID
+        
+        Args:
+            id: Document ID
+            
+        Returns:
+            VectorDocument if found, None otherwise
+        """
+        return self.documents.get(id)
+    
+    def delete(self, id: str) -> bool:
+        """
+        Delete a document by ID
+        
+        Args:
+            id: Document ID
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        if id not in self.documents:
+            return False
+        
+        # Find index in vectors list
+        idx = self.doc_ids.index(id)
+        
+        # Remove from all structures
+        del self.documents[id]
+        del self.vectors[idx]
+        del self.doc_ids[idx]
+        
+        return True
+    
+    def clear(self):
+        """Clear all documents from database"""
+        self.documents.clear()
+        self.vectors.clear()
+        self.doc_ids.clear()
+    
+    def size(self) -> int:
+        """Get number of documents in database"""
+        return len(self.documents)
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get database statistics"""
+        avg_search_time = (
+            self.total_search_time / self.search_count 
+            if self.search_count > 0 else 0
+        )
+        
+        return {
+            "name": self.name,
+            "metric": self.metric,
+            "documents": len(self.documents),
+            "dimension": len(self.vectors[0]) if self.vectors else 0,
+            "searches": self.search_count,
+            "avg_search_time_ms": round(avg_search_time * 1000, 2),
+            "searches_per_sec": (
+                int(1 / avg_search_time) if avg_search_time > 0 else 0
+            )
+        }
+
+# Embedding generator interface
+class EmbeddingGenerator:
+    """Base class for embedding generation"""
+    
+    def embed(self, text: str) -> np.ndarray:
+        """
+        Generate embedding for text
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Embedding vector
+        """
+        raise NotImplementedError
+    
+    def embed_batch(self, texts: List[str]) -> List[np.ndarray]:
+        """
+        Generate embeddings for multiple texts
+        
+        Args:
+            texts: List of input texts
+            
+        Returns:
+            List of embedding vectors
+        """
+        return [self.embed(text) for text in texts]
+
+# Simple TF-IDF embedding (for testing/demo)
+class SimpleTFIDFEmbedding(EmbeddingGenerator):
+    """
+    Simple TF-IDF based embedding for demonstration
+    
+    Not production-ready, but useful for testing vector DB
+    """
+    
+    def __init__(self, vocab_size: int = 1000):
+        """
+        Initialize TF-IDF embedder
+        
+        Args:
+            vocab_size: Vocabulary size (embedding dimension)
+        """
+        self.vocab_size = vocab_size
+        self.vocab: Dict[str, int] = {}
+        self.idf: Dict[str, float] = {}
+        self.doc_count = 0
+    
+    def _tokenize(self, text: str) -> List[str]:
+        """Simple tokenization"""
+        # Convert to lowercase and split on whitespace/punctuation
+        import re
+        text = text.lower()
+        tokens = re.findall(r'\b\w+\b', text)
+        return tokens
+    
+    def _build_vocab(self, texts: List[str]):
+        """Build vocabulary from texts"""
+        word_freq = {}
+        
+        for text in texts:
+            tokens = self._tokenize(text)
+            unique_tokens = set(tokens)
+            
+            for token in unique_tokens:
+                word_freq[token] = word_freq.get(token, 0) + 1
+        
+        # Sort by frequency and take top N
+        sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+        
+        for i, (word, freq) in enumerate(sorted_words[:self.vocab_size]):
+            self.vocab[word] = i
+            # Simple IDF: log(total_docs / doc_freq)
+            self.idf[word] = np.log(len(texts) / freq)
+    
+    def fit(self, texts: List[str]):
+        """
+        Fit the embedder on a corpus
+        
+        Args:
+            texts: List of documents
+        """
+        self._build_vocab(texts)
+        self.doc_count = len(texts)
+    
+    def embed(self, text: str) -> np.ndarray:
+        """Generate TF-IDF embedding"""
+        tokens = self._tokenize(text)
+        
+        # Count term frequencies
+        tf = {}
+        for token in tokens:
+            tf[token] = tf.get(token, 0) + 1
+        
+        # Normalize TF
+        total_terms = len(tokens) if tokens else 1
+        for token in tf:
+            tf[token] = tf[token] / total_terms
+        
+        # Build TF-IDF vector
+        vector = np.zeros(self.vocab_size)
+        
+        for token, freq in tf.items():
+            if token in self.vocab:
+                idx = self.vocab[token]
+                idf = self.idf.get(token, 0)
+                vector[idx] = freq * idf
+        
+        # Normalize vector
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+        
+        return vector
+
+# RAG (Retrieval-Augmented Generation) helper
+class RAGPipeline:
+    """
+    RAG pipeline combining vector search with text generation
+    
+    Retrieves relevant context and augments queries for better responses
+    """
+    
+    def __init__(self, vector_db: VectorDB, top_k: int = 3):
+        """
+        Initialize RAG pipeline
+        
+        Args:
+            vector_db: Vector database for retrieval
+            top_k: Number of documents to retrieve
+        """
+        self.vector_db = vector_db
+        self.top_k = top_k
+        self.query_count = 0
+    
+    def retrieve(self, query_vector: np.ndarray, 
+                 filter_fn: Optional[Callable] = None) -> List[SearchResult]:
+        """
+        Retrieve relevant documents
+        
+        Args:
+            query_vector: Query embedding
+            filter_fn: Optional metadata filter
+            
+        Returns:
+            List of relevant documents
+        """
+        results = self.vector_db.search(query_vector, self.top_k, filter_fn)
+        self.query_count += 1
+        return results
+    
+    def build_context(self, results: List[SearchResult], 
+                      max_length: int = 2000) -> str:
+        """
+        Build context string from search results
+        
+        Args:
+            results: Search results
+            max_length: Maximum context length in characters
+            
+        Returns:
+            Context string
+        """
+        context_parts = []
+        current_length = 0
+        
+        for result in results:
+            # Get text from metadata
+            text = result.document.metadata.get("text", "")
+            
+            # Check if adding this would exceed max length
+            if current_length + len(text) > max_length:
+                # Add partial text
+                remaining = max_length - current_length
+                if remaining > 0:
+                    context_parts.append(text[:remaining] + "...")
+                break
+            
+            context_parts.append(text)
+            current_length += len(text)
+        
+        return "\n\n".join(context_parts)
+    
+    def augment_query(self, query: str, context: str) -> str:
+        """
+        Augment query with retrieved context
+        
+        Args:
+            query: Original query
+            context: Retrieved context
+            
+        Returns:
+            Augmented query/prompt
+        """
+        prompt = f"""Context:
+{context}
+
+Question: {query}
+
+Answer based on the context above:"""
+        
+        return prompt
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get RAG statistics"""
+        return {
+            "queries": self.query_count,
+            "top_k": self.top_k,
+            "vector_db": self.vector_db.get_stats()
+        }
+
+# Utility functions
+def create_vector_db(name: str = "vectordb", metric: str = "cosine") -> VectorDB:
+    """
+    Create a new vector database
+    
+    Args:
+        name: Database name
+        metric: Distance metric
+        
+    Returns:
+        VectorDB instance
+    """
+    return VectorDB(name, metric)
+
+def create_rag_pipeline(vector_db: VectorDB, top_k: int = 3) -> RAGPipeline:
+    """
+    Create a RAG pipeline
+    
+    Args:
+        vector_db: Vector database
+        top_k: Number of documents to retrieve
+        
+    Returns:
+        RAGPipeline instance
+    """
+    return RAGPipeline(vector_db, top_k)

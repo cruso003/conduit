@@ -1,0 +1,439 @@
+# Conduit ML Inference Engine
+# High-performance inference pipeline with preprocessing and postprocessing
+
+import time
+from typing import Dict, Any, Optional, Union, List, Callable
+from .loader import BaseModel, ModelError, load_model
+
+# Inference-related exceptions
+class InferenceError(Exception):
+    """Base exception for inference errors"""
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+class PreprocessingError(InferenceError):
+    """Raised when input preprocessing fails"""
+    pass
+
+class PostprocessingError(InferenceError):
+    """Raised when output postprocessing fails"""
+    pass
+
+class ValidationError(InferenceError):
+    """Raised when input validation fails"""
+    pass
+
+# Type aliases for preprocessing/postprocessing functions
+PreprocessFunc = Callable[[Any], Any]
+PostprocessFunc = Callable[[Any], Any]
+ValidatorFunc = Callable[[Any], bool]
+
+class InferenceEngine:
+    """
+    High-level inference engine with preprocessing, validation, and caching
+    """
+    
+    def __init__(self, model: Union[BaseModel, str]):
+        """
+        Initialize inference engine
+        
+        Args:
+            model: BaseModel instance or path to model file
+        """
+        if isinstance(model, str):
+            self.model = load_model(model)
+        else:
+            self.model = model
+        
+        # Pipeline components
+        self.preprocessor: Optional[PreprocessFunc] = None
+        self.postprocessor: Optional[PostprocessFunc] = None
+        self.validator: Optional[ValidatorFunc] = None
+        
+        # Configuration
+        self.enable_validation = True
+        self.enable_timing = True
+        self.max_batch_size = 32
+        
+        # Statistics
+        self.inference_count = 0
+        self.total_inference_time = 0.0
+        self.error_count = 0
+        self.last_inference_time = 0.0
+    
+    def set_preprocessor(self, func: PreprocessFunc):
+        """Set input preprocessing function"""
+        self.preprocessor = func
+    
+    def set_postprocessor(self, func: PostprocessFunc):
+        """Set output postprocessing function"""
+        self.postprocessor = func
+    
+    def set_validator(self, func: ValidatorFunc):
+        """Set input validation function"""
+        self.validator = func
+    
+    def predict(self, input_data: Any) -> Any:
+        """
+        Run inference on single input
+        
+        Args:
+            input_data: Input data for the model
+            
+        Returns:
+            Model prediction (after postprocessing if configured)
+            
+        Raises:
+            ValidationError: Input validation failed
+            PreprocessingError: Preprocessing failed
+            InferenceError: Model inference failed
+            PostprocessingError: Postprocessing failed
+        """
+        start_time = time.time() if self.enable_timing else 0
+        
+        try:
+            # Step 1: Validation
+            if self.enable_validation and self.validator is not None:
+                if not self.validator(input_data):
+                    raise ValidationError("Input validation failed")
+            
+            # Step 2: Preprocessing
+            processed_input = input_data
+            if self.preprocessor is not None:
+                try:
+                    processed_input = self.preprocessor(input_data)
+                except Exception as e:
+                    raise PreprocessingError(f"Preprocessing failed: {str(e)}")
+            
+            # Step 3: Model inference
+            try:
+                raw_output = self.model.predict(processed_input)
+            except Exception as e:
+                raise InferenceError(f"Model inference failed: {str(e)}")
+            
+            # Step 4: Postprocessing
+            final_output = raw_output
+            if self.postprocessor is not None:
+                try:
+                    final_output = self.postprocessor(raw_output)
+                except Exception as e:
+                    raise PostprocessingError(f"Postprocessing failed: {str(e)}")
+            
+            # Update statistics
+            self.inference_count += 1
+            if self.enable_timing:
+                inference_time = time.time() - start_time
+                self.last_inference_time = inference_time
+                self.total_inference_time += inference_time
+            
+            return final_output
+            
+        except Exception as e:
+            self.error_count += 1
+            if isinstance(e, InferenceError):
+                raise
+            else:
+                raise InferenceError(f"Unexpected error during inference: {str(e)}")
+    
+    def predict_batch(self, input_batch: List[Any]) -> List[Any]:
+        """
+        Run inference on batch of inputs
+        
+        Args:
+            input_batch: List of input data
+            
+        Returns:
+            List of predictions
+            
+        Raises:
+            InferenceError: Batch inference failed
+        """
+        if len(input_batch) > self.max_batch_size:
+            raise InferenceError(f"Batch size {len(input_batch)} exceeds maximum {self.max_batch_size}")
+        
+        results = []
+        errors = []
+        
+        start_time = time.time() if self.enable_timing else 0
+        
+        for i, input_data in enumerate(input_batch):
+            try:
+                result = self.predict(input_data)
+                results.append(result)
+            except Exception as e:
+                errors.append((i, str(e)))
+                results.append(None)  # Placeholder for failed prediction
+        
+        if self.enable_timing:
+            batch_time = time.time() - start_time
+            avg_time_per_item = batch_time / len(input_batch)
+            print(f"Batch inference: {len(input_batch)} items in {batch_time:.3f}s ({avg_time_per_item:.3f}s/item)")
+        
+        if errors:
+            error_msg = f"Batch inference completed with {len(errors)} errors: {errors[:3]}"
+            if len(errors) > 3:
+                error_msg += f" ... and {len(errors) - 3} more"
+            print(f"Warning: {error_msg}")
+        
+        return results
+    
+    def warm_up(self, sample_input: Any, n_runs: int = 5):
+        """
+        Warm up the model with sample predictions
+        
+        Args:
+            sample_input: Sample input for warm-up
+            n_runs: Number of warm-up runs
+        """
+        print(f"Warming up model with {n_runs} runs...")
+        
+        for i in range(n_runs):
+            try:
+                _ = self.predict(sample_input)
+            except Exception as e:
+                print(f"Warning: Warm-up run {i+1} failed: {e}")
+        
+        print("Model warm-up completed")
+    
+    def benchmark(self, sample_input: Any, n_runs: int = 100) -> Dict[str, float]:
+        """
+        Benchmark inference performance
+        
+        Args:
+            sample_input: Sample input for benchmarking
+            n_runs: Number of benchmark runs
+            
+        Returns:
+            Performance statistics
+        """
+        print(f"Benchmarking model performance with {n_runs} runs...")
+        
+        # Warm up first
+        self.warm_up(sample_input, n_runs=5)
+        
+        # Reset timing stats
+        old_timing = self.enable_timing
+        self.enable_timing = True
+        
+        times = []
+        errors = 0
+        
+        for i in range(n_runs):
+            start = time.time()
+            try:
+                _ = self.predict(sample_input)
+                times.append(time.time() - start)
+            except Exception:
+                errors += 1
+        
+        self.enable_timing = old_timing
+        
+        if not times:
+            return {"error": "All benchmark runs failed"}
+        
+        # Calculate statistics
+        times.sort()
+        n_success = len(times)
+        
+        stats = {
+            "n_runs": n_runs,
+            "n_success": n_success,
+            "n_errors": errors,
+            "success_rate": n_success / n_runs,
+            "mean_time_ms": sum(times) / len(times) * 1000,
+            "median_time_ms": times[len(times)//2] * 1000,
+            "p95_time_ms": times[int(len(times) * 0.95)] * 1000,
+            "p99_time_ms": times[int(len(times) * 0.99)] * 1000,
+            "min_time_ms": min(times) * 1000,
+            "max_time_ms": max(times) * 1000,
+            "predictions_per_sec": 1.0 / (sum(times) / len(times))
+        }
+        
+        print(f"Benchmark completed: {stats['mean_time_ms']:.2f}ms avg, {stats['predictions_per_sec']:.0f} pred/sec")
+        
+        return stats
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get inference engine statistics"""
+        avg_time = self.total_inference_time / self.inference_count if self.inference_count > 0 else 0
+        
+        return {
+            "model_info": self.model.get_info(),
+            "inference_count": self.inference_count,
+            "error_count": self.error_count,
+            "error_rate": self.error_count / max(1, self.inference_count + self.error_count),
+            "total_time_sec": round(self.total_inference_time, 3),
+            "avg_time_ms": round(avg_time * 1000, 3),
+            "last_time_ms": round(self.last_inference_time * 1000, 3),
+            "predictions_per_sec": round(1.0 / avg_time, 0) if avg_time > 0 else 0,
+            "config": {
+                "validation_enabled": self.enable_validation,
+                "timing_enabled": self.enable_timing,
+                "max_batch_size": self.max_batch_size,
+                "has_preprocessor": self.preprocessor is not None,
+                "has_postprocessor": self.postprocessor is not None,
+                "has_validator": self.validator is not None
+            }
+        }
+    
+    def reset_stats(self):
+        """Reset all statistics"""
+        self.inference_count = 0
+        self.total_inference_time = 0.0
+        self.error_count = 0
+        self.last_inference_time = 0.0
+
+# Utility functions for common preprocessing/postprocessing
+class PreprocessingUtils:
+    """Common preprocessing functions"""
+    
+    @staticmethod
+    def normalize_features(data: Any, mean: Optional[Any] = None, std: Optional[Any] = None) -> Any:
+        """Normalize features to zero mean and unit variance"""
+        try:
+            import numpy as np
+            
+            if isinstance(data, list):
+                data = np.array(data)
+            
+            if mean is not None and std is not None:
+                return (data - mean) / std
+            else:
+                return (data - np.mean(data)) / np.std(data)
+                
+        except ImportError:
+            raise PreprocessingError("NumPy required for feature normalization")
+        except Exception as e:
+            raise PreprocessingError(f"Feature normalization failed: {str(e)}")
+    
+    @staticmethod
+    def to_array(data: Any, dtype: str = 'float32') -> Any:
+        """Convert input to numpy array"""
+        try:
+            import numpy as np
+            return np.array(data, dtype=dtype)
+        except ImportError:
+            raise PreprocessingError("NumPy required for array conversion")
+        except Exception as e:
+            raise PreprocessingError(f"Array conversion failed: {str(e)}")
+    
+    @staticmethod
+    def validate_shape(expected_shape: tuple) -> ValidatorFunc:
+        """Create validator for input shape"""
+        def validator(data: Any) -> bool:
+            try:
+                if hasattr(data, 'shape'):
+                    return data.shape == expected_shape
+                else:
+                    import numpy as np
+                    return np.array(data).shape == expected_shape
+            except:
+                return False
+        return validator
+    
+    @staticmethod
+    def validate_range(min_val: float, max_val: float) -> ValidatorFunc:
+        """Create validator for value range"""
+        def validator(data: Any) -> bool:
+            try:
+                if hasattr(data, 'min') and hasattr(data, 'max'):
+                    return data.min() >= min_val and data.max() <= max_val
+                else:
+                    import numpy as np
+                    arr = np.array(data)
+                    return arr.min() >= min_val and arr.max() <= max_val
+            except:
+                return False
+        return validator
+
+class PostprocessingUtils:
+    """Common postprocessing functions"""
+    
+    @staticmethod
+    def softmax(logits: Any) -> Any:
+        """Apply softmax to logits"""
+        try:
+            import numpy as np
+            exp_logits = np.exp(logits - np.max(logits))  # Numerical stability
+            return exp_logits / np.sum(exp_logits)
+        except ImportError:
+            raise PostprocessingError("NumPy required for softmax")
+        except Exception as e:
+            raise PostprocessingError(f"Softmax failed: {str(e)}")
+    
+    @staticmethod
+    def top_k_classes(predictions: Any, class_names: List[str], k: int = 3) -> List[Dict[str, Any]]:
+        """Get top-k predicted classes with probabilities"""
+        try:
+            import numpy as np
+            
+            if len(predictions) != len(class_names):
+                raise PostprocessingError("Number of predictions must match number of class names")
+            
+            # Get top-k indices
+            top_indices = np.argsort(predictions)[-k:][::-1]
+            
+            results = []
+            for idx in top_indices:
+                results.append({
+                    'class': class_names[idx],
+                    'index': int(idx),
+                    'probability': float(predictions[idx])
+                })
+            
+            return results
+            
+        except ImportError:
+            raise PostprocessingError("NumPy required for top-k classification")
+        except Exception as e:
+            raise PostprocessingError(f"Top-k classification failed: {str(e)}")
+    
+    @staticmethod
+    def regression_postprocess(predictions: Any, denormalize: bool = False, 
+                             mean: Optional[Any] = None, std: Optional[Any] = None) -> Any:
+        """Postprocess regression outputs"""
+        try:
+            result = predictions
+            
+            if denormalize and mean is not None and std is not None:
+                result = result * std + mean
+            
+            # Ensure we return a simple number for single predictions
+            if hasattr(result, 'item') and result.size == 1:
+                return result.item()
+            
+            return result
+            
+        except Exception as e:
+            raise PostprocessingError(f"Regression postprocessing failed: {str(e)}")
+
+# Factory function for quick engine creation
+def create_inference_engine(model_path: str, 
+                          preprocessor: Optional[PreprocessFunc] = None,
+                          postprocessor: Optional[PostprocessFunc] = None,
+                          validator: Optional[ValidatorFunc] = None) -> InferenceEngine:
+    """
+    Create and configure an inference engine
+    
+    Args:
+        model_path: Path to model file
+        preprocessor: Optional preprocessing function
+        postprocessor: Optional postprocessing function  
+        validator: Optional input validation function
+        
+    Returns:
+        Configured InferenceEngine
+    """
+    engine = InferenceEngine(model_path)
+    
+    if preprocessor is not None:
+        engine.set_preprocessor(preprocessor)
+    
+    if postprocessor is not None:
+        engine.set_postprocessor(postprocessor)
+    
+    if validator is not None:
+        engine.set_validator(validator)
+    
+    return engine

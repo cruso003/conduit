@@ -1,0 +1,276 @@
+"""
+Production-Ready Server with Edge Case Handling
+
+Demonstrates all Week 19 production hardening features including
+edge case handling for large files, timeouts, memory, and shutdown.
+"""
+
+from conduit import Conduit
+from conduit.framework.errors import error_handler, not_found_handler, abort, InferenceError
+from conduit.framework.monitoring import logging_middleware, create_metrics_endpoint, create_health_endpoint, _metrics, _health_check
+from conduit.framework.security import rate_limit, enable_cors, security_headers, InputValidator
+from conduit.framework.edge_cases import (
+    request_size_limit,
+    request_timeout,
+    create_graceful_shutdown_handler,
+    create_memory_monitor,
+    create_connection_pool,
+    StreamingUpload
+)
+from conduit.ml.resilience import ResilientMLModel, CircuitBreaker
+import time
+
+
+# Create app
+app = Conduit()
+
+# Edge case handling
+shutdown_handler = create_graceful_shutdown_handler(cleanup_timeout=15.0)
+memory_monitor = create_memory_monitor(max_memory_mb=1024)
+connection_pool = create_connection_pool(max_connections=1000)
+streaming_upload = StreamingUpload(chunk_size=8192)
+validator = InputValidator()
+
+
+# Mock ML model for demonstration
+class MockMLModel:
+    def __init__(self):
+        self.loaded = True
+        self.call_count = 0
+    
+    def predict(self, features: List[float]) -> List[float]:
+        self.call_count += 1
+        time.sleep(0.01)  # Simulate inference
+        return [sum(features) / len(features)]
+    
+    def cleanup(self):
+        print("  ↳ Cleaning up ML model...")
+        self.loaded = False
+
+
+# Initialize model with resilience
+base_model = MockMLModel()
+resilient_model = ResilientMLModel(
+    model=base_model,
+    use_circuit_breaker=True,
+    use_retry=True,
+    max_retries=3
+)
+
+
+# Register cleanup callbacks
+def cleanup_model():
+    base_model.cleanup()
+
+def cleanup_connections():
+    print(f"  ↳ Closing {connection_pool.active_connections} active connections...")
+    while connection_pool.active_connections > 0:
+        connection_pool.release_connection()
+
+shutdown_handler.register_cleanup(cleanup_model)
+shutdown_handler.register_cleanup(cleanup_connections)
+shutdown_handler.setup_signal_handlers()
+
+
+# Register health checks
+def check_model_health() -> tuple[bool, str]:
+    if not base_model.loaded:
+        return (False, "Model not loaded")
+    return (True, f"Model ready ({base_model.call_count} predictions)")
+
+def check_memory_health() -> tuple[bool, str]:
+    current_mb, exceeded = memory_monitor.check_memory()
+    if exceeded:
+        return (False, f"Memory limit exceeded: {current_mb:.1f}MB")
+    return (True, f"Memory OK: {current_mb:.1f}MB")
+
+def check_connections_health() -> tuple[bool, str]:
+    stats = connection_pool.get_stats()
+    if stats["utilization"] > 90:
+        return (False, f"Connection pool nearly full: {stats['utilization']:.1f}%")
+    return (True, f"Connections OK: {stats['active']}/{stats['max']}")
+
+_health_check.register_check("model", check_model_health)
+_health_check.register_check("memory", check_memory_health)
+_health_check.register_check("connections", check_connections_health)
+
+
+# Apply middleware stack (order matters!)
+app.use(security_headers())           # 1. Security headers first
+app.use(enable_cors())                 # 2. CORS configuration
+app.use(request_size_limit(max_mb=50)) # 3. Limit request size (50MB)
+app.use(request_timeout(timeout_seconds=30.0))  # 4. Timeout protection
+app.use(logging_middleware())          # 5. Request logging
+app.use(rate_limit(max_requests=100, window_seconds=60))  # 6. Rate limiting
+app.use(error_handler())               # 7. Error handling
+app.use(not_found_handler())           # 8. 404 handler (last)
+
+
+# Routes
+@app.get("/")
+def home(req, res):
+    """Health status endpoint"""
+    res.json({
+        "status": "ok",
+        "service": "Conduit Production Server",
+        "version": "1.0.0",
+        "features": [
+            "Error handling",
+            "Circuit breakers",
+            "Rate limiting",
+            "Request size limits",
+            "Timeout protection",
+            "Graceful shutdown",
+            "Memory monitoring"
+        ]
+    })
+
+
+@app.get("/health")
+def health(req, res):
+    """Detailed health check"""
+    return create_health_endpoint()(req, res)
+
+
+@app.get("/metrics")
+def metrics(req, res):
+    """Prometheus-compatible metrics"""
+    return create_metrics_endpoint()(req, res)
+
+
+@app.post("/predict")
+def predict(req, res):
+    """ML prediction with full production hardening"""
+    # Acquire connection
+    if not connection_pool.acquire_connection():
+        abort(503, "Service unavailable", "Connection pool exhausted")
+    
+    try:
+        # Check memory
+        memory_monitor.log_memory_status()
+        current_mb, exceeded = memory_monitor.check_memory()
+        if exceeded:
+            abort(503, "Service unavailable", "Memory limit exceeded")
+        
+        # Parse and validate input
+        data = req.json()
+        
+        # Validate required fields
+        errors = validator.validate_required(data, ["features"])
+        if errors:
+            abort(400, "Invalid request", "; ".join(errors))
+        
+        # Validate input is list of floats
+        if not isinstance(data["features"], list):
+            abort(400, "Invalid request", "'features' must be a list")
+        
+        # Validate ML input shape
+        shape_errors = validator.validate_ml_input_shape(
+            data["features"],
+            expected_dims=None  # Accept any size for demo
+        )
+        if shape_errors:
+            abort(422, "Invalid input shape", "; ".join(shape_errors))
+        
+        # Make prediction with resilience
+        start_time = time.time()
+        try:
+            prediction = resilient_model.predict(data["features"])
+            duration = time.time() - start_time
+            
+            # Track metrics
+            _metrics.increment_counter("predictions.success", 1)
+            _metrics.observe_histogram("prediction.duration", duration)
+            
+            res.json({
+                "prediction": prediction,
+                "duration_ms": duration * 1000,
+                "model": "production-model-v1"
+            })
+        
+        except Exception as e:
+            _metrics.increment_counter("predictions.failure", 1)
+            raise InferenceError("Prediction failed", str(e))
+    
+    finally:
+        # Always release connection
+        connection_pool.release_connection()
+
+
+@app.post("/upload")
+def upload_large_file(req, res):
+    """Handle large file upload with streaming"""
+    try:
+        # Check content length
+        if "Content-Length" not in req.headers:
+            abort(400, "Bad Request", "Content-Length header required")
+        
+        content_length = int(req.headers["Content-Length"])
+        
+        # Stream upload to disk
+        save_path = f"/tmp/upload_{int(time.time())}.bin"
+        bytes_written = streaming_upload.handle_upload(req, save_path)
+        
+        _metrics.increment_counter("uploads.total", 1)
+        _metrics.observe_histogram("upload.size_mb", bytes_written / (1024 * 1024))
+        
+        res.json({
+            "status": "uploaded",
+            "bytes": bytes_written,
+            "path": save_path
+        })
+    
+    except Exception as e:
+        _metrics.increment_counter("uploads.failed", 1)
+        raise
+
+
+@app.get("/stats")
+def stats(req, res):
+    """Server statistics"""
+    conn_stats = connection_pool.get_stats()
+    current_mb, exceeded = memory_monitor.check_memory()
+    
+    res.json({
+        "connections": conn_stats,
+        "memory": {
+            "current_mb": round(current_mb, 2),
+            "peak_mb": round(memory_monitor.peak_memory_mb, 2),
+            "limit_mb": memory_monitor.max_memory_mb,
+            "exceeded": exceeded
+        },
+        "predictions": {
+            "total": base_model.call_count
+        }
+    })
+
+
+# Main
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("  CONDUIT PRODUCTION SERVER - Week 19 Complete")
+    print("="*70)
+    print("\n✅ Production Features Enabled:")
+    print("  • Error Handling: HTTPError hierarchy + middleware")
+    print("  • ML Resilience: Circuit breakers + retry + fallbacks")
+    print("  • Monitoring: Metrics + logging + health checks")
+    print("  • Security: Rate limiting + auth + CORS + validation")
+    print("  • Edge Cases: Size limits + timeouts + memory + shutdown")
+    print("\n🌐 Endpoints:")
+    print("  GET  /           - Service status")
+    print("  GET  /health     - Detailed health check")
+    print("  GET  /metrics    - Prometheus metrics")
+    print("  GET  /stats      - Server statistics")
+    print("  POST /predict    - ML prediction")
+    print("  POST /upload     - Large file upload")
+    print("\n🛡️  Edge Case Protection:")
+    print(f"  • Max request size: 50MB")
+    print(f"  • Request timeout: 30s")
+    print(f"  • Memory limit: 1024MB")
+    print(f"  • Max connections: 1000")
+    print(f"  • Graceful shutdown: 15s cleanup")
+    print("\n" + "="*70)
+    print("Press Ctrl+C for graceful shutdown")
+    print("="*70 + "\n")
+    
+    app.run(port=8080)

@@ -1,0 +1,440 @@
+# Conduit ML Streaming Module
+# Real-time streaming inference for ML predictions
+
+import time
+from typing import Iterator, Any, Dict, Optional, Callable, List
+
+# Streaming-related exceptions
+class StreamingError(Exception):
+    """Base exception for streaming errors"""
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+class StreamTimeoutError(StreamingError):
+    """Raised when stream times out"""
+    pass
+
+class StreamClosedError(StreamingError):
+    """Raised when attempting to use closed stream"""
+    pass
+
+# Streaming chunk format
+class StreamChunk:
+    """Represents a single chunk in a streaming response"""
+    
+    def __init__(self, data: Any, complete: bool = False, metadata: Optional[Dict] = None):
+        """
+        Initialize a stream chunk
+        
+        Args:
+            data: The chunk data
+            complete: Whether this is the final chunk
+            metadata: Optional metadata about the chunk
+        """
+        self.data = data
+        self.complete = complete
+        self.metadata = metadata if metadata is not None else {}
+        self.timestamp = time.time()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert chunk to dictionary for JSON serialization"""
+        return {
+            "data": self.data,
+            "complete": self.complete,
+            "metadata": self.metadata,
+            "timestamp": self.timestamp
+        }
+    
+    def to_sse_format(self) -> str:
+        """Convert to Server-Sent Events format"""
+        import json
+        data_json = json.dumps(self.to_dict())
+        return f"data: {data_json}\n\n"
+
+# Streaming response generator
+class StreamingResponse:
+    """Manages a streaming ML inference response"""
+    
+    def __init__(self, generator: Iterator[StreamChunk], timeout: float = 30.0):
+        """
+        Initialize streaming response
+        
+        Args:
+            generator: Iterator that yields StreamChunks
+            timeout: Maximum time to wait for next chunk (seconds)
+        """
+        self.generator = generator
+        self.timeout = timeout
+        self.started = False
+        self.completed = False
+        self.chunk_count = 0
+        self.total_bytes = 0
+        self.start_time = 0.0
+    
+    def __iter__(self):
+        """Make the streaming response iterable"""
+        self.started = True
+        self.start_time = time.time()
+        return self
+    
+    def __next__(self) -> StreamChunk:
+        """Get next chunk from the stream"""
+        if self.completed:
+            raise StopIteration
+        
+        try:
+            start = time.time()
+            chunk = next(self.generator)
+            
+            # Update statistics
+            self.chunk_count += 1
+            chunk_data = str(chunk.data)
+            self.total_bytes += len(chunk_data)
+            
+            # Check if complete
+            if chunk.complete:
+                self.completed = True
+            
+            # Check timeout
+            if time.time() - start > self.timeout:
+                raise StreamTimeoutError(f"Chunk generation exceeded timeout of {self.timeout}s")
+            
+            return chunk
+            
+        except StopIteration:
+            self.completed = True
+            raise
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get streaming statistics"""
+        duration = time.time() - self.start_time if self.started else 0
+        
+        return {
+            "started": self.started,
+            "completed": self.completed,
+            "chunk_count": self.chunk_count,
+            "total_bytes": self.total_bytes,
+            "duration_sec": round(duration, 3),
+            "avg_chunk_time_ms": round((duration / self.chunk_count * 1000), 2) if self.chunk_count > 0 else 0,
+            "bytes_per_sec": round(self.total_bytes / duration, 0) if duration > 0 else 0
+        }
+
+# Streaming ML engine
+class StreamingInferenceEngine:
+    """
+    Engine for streaming ML predictions
+    
+    Enables models to generate predictions incrementally,
+    useful for generative models and progressive processing.
+    """
+    
+    def __init__(self, model: Any, chunk_size: int = 1):
+        """
+        Initialize streaming engine
+        
+        Args:
+            model: The ML model to use for inference
+            chunk_size: Number of predictions per chunk
+        """
+        self.model = model
+        self.chunk_size = chunk_size
+        self.active_streams = 0
+        self.total_streams = 0
+        self.total_chunks_sent = 0
+    
+    def stream_predict(self, input_data: Any, max_chunks: Optional[int] = None) -> Iterator[StreamChunk]:
+        """
+        Generate streaming predictions
+        
+        Args:
+            input_data: Input for the model
+            max_chunks: Maximum number of chunks to generate
+            
+        Yields:
+            StreamChunk objects with prediction data
+        """
+        self.active_streams += 1
+        self.total_streams += 1
+        
+        try:
+            chunk_idx = 0
+            
+            # For now, simulate streaming by yielding prediction incrementally
+            # In real implementation, this would depend on the model type
+            
+            # Get full prediction first
+            try:
+                full_prediction = self.model.predict(input_data)
+            except Exception as e:
+                # Yield error chunk
+                yield StreamChunk(
+                    data={"error": str(e)},
+                    complete=True,
+                    metadata={"chunk_index": 0, "error": True}
+                )
+                return
+            
+            # Convert to list if needed
+            if hasattr(full_prediction, 'tolist'):
+                pred_list = full_prediction.tolist()
+            elif hasattr(full_prediction, '__iter__'):
+                pred_list = list(full_prediction)
+            else:
+                pred_list = [full_prediction]
+            
+            # Stream results in chunks
+            total_items = len(pred_list) if isinstance(pred_list, list) else 1
+            chunks_to_send = min(max_chunks, total_items) if max_chunks else total_items
+            
+            for i in range(0, len(pred_list), self.chunk_size):
+                chunk_data = pred_list[i:i+self.chunk_size]
+                is_final = (i + self.chunk_size) >= len(pred_list)
+                
+                chunk = StreamChunk(
+                    data=chunk_data,
+                    complete=is_final,
+                    metadata={
+                        "chunk_index": chunk_idx,
+                        "chunk_size": len(chunk_data),
+                        "total_chunks": (len(pred_list) + self.chunk_size - 1) // self.chunk_size
+                    }
+                )
+                
+                self.total_chunks_sent += 1
+                chunk_idx += 1
+                
+                yield chunk
+                
+                if is_final or (max_chunks and chunk_idx >= max_chunks):
+                    break
+                    
+        finally:
+            self.active_streams -= 1
+    
+    def stream_batch_predict(self, input_batch: List[Any]) -> Iterator[StreamChunk]:
+        """
+        Stream predictions for a batch of inputs
+        
+        Args:
+            input_batch: List of inputs
+            
+        Yields:
+            StreamChunk objects, one per input in the batch
+        """
+        self.active_streams += 1
+        self.total_streams += 1
+        
+        try:
+            for idx, input_data in enumerate(input_batch):
+                try:
+                    prediction = self.model.predict(input_data)
+                    
+                    is_final = (idx == len(input_batch) - 1)
+                    
+                    chunk = StreamChunk(
+                        data=prediction.tolist() if hasattr(prediction, 'tolist') else prediction,
+                        complete=is_final,
+                        metadata={
+                            "batch_index": idx,
+                            "batch_size": len(input_batch)
+                        }
+                    )
+                    
+                    self.total_chunks_sent += 1
+                    yield chunk
+                    
+                except Exception as e:
+                    # Yield error chunk but continue
+                    yield StreamChunk(
+                        data={"error": str(e)},
+                        complete=False,
+                        metadata={"batch_index": idx, "error": True}
+                    )
+                    
+        finally:
+            self.active_streams -= 1
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get streaming engine statistics"""
+        return {
+            "active_streams": self.active_streams,
+            "total_streams": self.total_streams,
+            "total_chunks_sent": self.total_chunks_sent,
+            "avg_chunks_per_stream": round(self.total_chunks_sent / max(1, self.total_streams), 2)
+        }
+
+# Utility functions for streaming
+class StreamingUtils:
+    """Utility functions for working with streams"""
+    
+    @staticmethod
+    def collect_stream(stream: Iterator[StreamChunk], max_chunks: Optional[int] = None) -> List[Any]:
+        """
+        Collect all chunks from a stream into a list
+        
+        Args:
+            stream: The stream to collect from
+            max_chunks: Maximum chunks to collect
+            
+        Returns:
+            List of chunk data
+        """
+        results = []
+        chunk_count = 0
+        
+        for chunk in stream:
+            results.append(chunk.data)
+            chunk_count += 1
+            
+            if chunk.complete or (max_chunks and chunk_count >= max_chunks):
+                break
+        
+        return results
+    
+    @staticmethod
+    def merge_chunks(chunks: List[StreamChunk]) -> Any:
+        """
+        Merge multiple chunks into single result
+        
+        Args:
+            chunks: List of chunks to merge
+            
+        Returns:
+            Merged data
+        """
+        if not chunks:
+            return None
+        
+        # If all chunks are lists, concatenate them
+        if all(isinstance(chunk.data, list) for chunk in chunks):
+            result = []
+            for chunk in chunks:
+                result.extend(chunk.data)
+            return result
+        
+        # If all chunks are strings, join them
+        if all(isinstance(chunk.data, str) for chunk in chunks):
+            return ''.join(chunk.data for chunk in chunks)
+        
+        # Otherwise, return list of chunk data
+        return [chunk.data for chunk in chunks]
+    
+    @staticmethod
+    def create_generator(data: List[Any], chunk_size: int = 1) -> Iterator[StreamChunk]:
+        """
+        Create a streaming generator from a list
+        
+        Args:
+            data: List of items to stream
+            chunk_size: Items per chunk
+            
+        Yields:
+            StreamChunk objects
+        """
+        total_chunks = (len(data) + chunk_size - 1) // chunk_size
+        
+        for i in range(0, len(data), chunk_size):
+            chunk_data = data[i:i+chunk_size]
+            is_final = (i + chunk_size) >= len(data)
+            
+            yield StreamChunk(
+                data=chunk_data,
+                complete=is_final,
+                metadata={
+                    "chunk_index": i // chunk_size,
+                    "total_chunks": total_chunks
+                }
+            )
+    
+    @staticmethod
+    def throttle_stream(stream: Iterator[StreamChunk], delay_ms: float = 100) -> Iterator[StreamChunk]:
+        """
+        Throttle a stream to limit chunk rate
+        
+        Args:
+            stream: The stream to throttle
+            delay_ms: Delay between chunks in milliseconds
+            
+        Yields:
+            Throttled StreamChunks
+        """
+        import time
+        
+        for chunk in stream:
+            yield chunk
+            if not chunk.complete:
+                time.sleep(delay_ms / 1000.0)
+
+# SSE (Server-Sent Events) formatter
+class SSEFormatter:
+    """Format streaming data as Server-Sent Events"""
+    
+    @staticmethod
+    def format_chunk(chunk: StreamChunk, event_type: str = "message") -> str:
+        """
+        Format a chunk as SSE message
+        
+        Args:
+            chunk: The chunk to format
+            event_type: SSE event type
+            
+        Returns:
+            SSE-formatted string
+        """
+        import json
+        
+        lines = []
+        
+        # Add event type if not default
+        if event_type != "message":
+            lines.append(f"event: {event_type}")
+        
+        # Add data
+        data_json = json.dumps(chunk.to_dict())
+        lines.append(f"data: {data_json}")
+        
+        # Add end marker
+        lines.append("")
+        lines.append("")
+        
+        return "\n".join(lines)
+    
+    @staticmethod
+    def format_stream(stream: Iterator[StreamChunk], event_type: str = "prediction") -> Iterator[str]:
+        """
+        Format entire stream as SSE messages
+        
+        Args:
+            stream: The stream to format
+            event_type: SSE event type
+            
+        Yields:
+            SSE-formatted strings
+        """
+        for chunk in stream:
+            yield SSEFormatter.format_chunk(chunk, event_type)
+    
+    @staticmethod
+    def create_sse_response_headers() -> Dict[str, str]:
+        """Create headers for SSE response"""
+        return {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+
+# Factory function
+def create_streaming_engine(model: Any, chunk_size: int = 1) -> StreamingInferenceEngine:
+    """
+    Create a streaming inference engine
+    
+    Args:
+        model: The model to use
+        chunk_size: Predictions per chunk
+        
+    Returns:
+        Configured StreamingInferenceEngine
+    """
+    return StreamingInferenceEngine(model, chunk_size)

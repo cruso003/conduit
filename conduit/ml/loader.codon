@@ -1,0 +1,343 @@
+# Conduit ML Model Loader
+# Efficient model loading and caching for ML inference
+
+import os
+import sys
+from collections import defaultdict
+from typing import Dict, Any, Optional, Union, List
+from pathlib import Path
+
+# Model loading errors
+class ModelError(Exception):
+    """Base exception for model loading errors"""
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+class ModelNotFoundError(ModelError):
+    """Raised when model file not found"""
+    pass
+
+class UnsupportedModelError(ModelError):  
+    """Raised when model format not supported"""
+    pass
+
+class ModelLoadError(ModelError):
+    """Raised when model loading fails"""
+    pass
+
+# Model wrapper classes
+class BaseModel:
+    """Base class for all loaded models"""
+    
+    def __init__(self, model_data: Any, model_path: str):
+        self.model_data = model_data
+        self.model_path = model_path
+        self.model_name = os.path.basename(model_path)
+        self.format = self._detect_format()
+    
+    def _detect_format(self) -> str:
+        """Detect model format from file extension"""
+        ext = os.path.splitext(self.model_path)[1].lower()
+        if ext == '.npz':
+            return 'numpy'
+        elif ext == '.onnx':
+            return 'onnx'
+        else:
+            return 'unknown'
+    
+    def predict(self, input_data: Any) -> Any:
+        """Perform inference - implemented by subclasses"""
+        raise NotImplementedError("Subclasses must implement predict()")
+    
+    def get_info(self) -> Dict[str, Any]:
+        """Get model information"""
+        return {
+            'name': self.model_name,
+            'path': self.model_path, 
+            'format': self.format,
+            'size_mb': self._get_size_mb()
+        }
+    
+    def _get_size_mb(self) -> float:
+        """Get model file size in MB"""
+        try:
+            size_bytes = os.path.getsize(self.model_path)
+            return round(size_bytes / (1024 * 1024), 2)
+        except:
+            return 0.0
+
+class NumpyModel(BaseModel):
+    """Wrapper for NumPy-based models (.npz files)"""
+    
+    def __init__(self, model_data: Dict[str, Any], model_path: str):
+        super().__init__(model_data, model_path)
+        self.arrays = model_data
+        
+        # Try to identify model components
+        self.weights = self._find_weights()
+        self.biases = self._find_biases() 
+        self.metadata = self._extract_metadata()
+    
+    def _find_weights(self) -> Optional[Any]:
+        """Find weight arrays in the model"""
+        # Common weight array names
+        weight_names = ['weights', 'W', 'weight', 'w', 'kernel']
+        for name in weight_names:
+            if name in self.arrays:
+                return self.arrays[name]
+        
+        # Return first array if no standard name found
+        if len(self.arrays) > 0:
+            return list(self.arrays.values())[0]
+        return None
+    
+    def _find_biases(self) -> Optional[Any]:
+        """Find bias arrays in the model"""
+        bias_names = ['biases', 'B', 'bias', 'b']
+        for name in bias_names:
+            if name in self.arrays:
+                return self.arrays[name]
+        return None
+    
+    def _extract_metadata(self) -> Dict[str, Any]:
+        """Extract metadata about the model"""
+        metadata = {}
+        
+        if self.weights is not None:
+            metadata['input_dim'] = self.weights.shape[0] if len(self.weights.shape) > 1 else None
+            metadata['output_dim'] = self.weights.shape[-1] if len(self.weights.shape) > 1 else None
+            metadata['n_parameters'] = self.weights.size
+        
+        metadata['n_arrays'] = len(self.arrays)
+        metadata['array_names'] = list(self.arrays.keys())
+        
+        return metadata
+    
+    def predict(self, input_data: Any) -> Any:
+        """Simple linear prediction for demonstration"""
+        if self.weights is None:
+            raise ModelError("No weight matrix found in model")
+        
+        # Convert input to appropriate format
+        if hasattr(input_data, 'shape'):
+            x = input_data
+        else:
+            # Assume it's a list or simple array
+            try:
+                import numpy as np
+                x = np.array(input_data)
+            except:
+                raise ModelError("Could not convert input to array format")
+        
+        # Simple matrix multiplication
+        try:
+            result = x @ self.weights
+            if self.biases is not None:
+                result = result + self.biases
+            return result
+        except Exception as e:
+            raise ModelError(f"Prediction failed: {str(e)}")
+
+class ONNXModel(BaseModel):
+    """Wrapper for ONNX models (basic support)"""
+    
+    def __init__(self, model_data: Any, model_path: str):
+        super().__init__(model_data, model_path)
+        self.session = model_data
+    
+    def predict(self, input_data: Any) -> Any:
+        """ONNX inference - placeholder for now"""
+        # This would require ONNX Runtime integration
+        # For now, return mock prediction
+        raise UnsupportedModelError("ONNX inference not yet implemented")
+
+# Model cache for efficient loading
+class ModelCache:
+    """LRU cache for loaded models"""
+    
+    def __init__(self, max_models: int = 10):
+        self.max_models = max_models
+        self.cache: Dict[str, BaseModel] = {}
+        self.access_order: List[str] = []
+        self.hit_count = 0
+        self.miss_count = 0
+    
+    def get(self, model_path: str) -> Optional[BaseModel]:
+        """Get model from cache"""
+        if model_path in self.cache:
+            # Move to end (most recently used)
+            self.access_order.remove(model_path)
+            self.access_order.append(model_path)
+            self.hit_count += 1
+            return self.cache[model_path]
+        
+        self.miss_count += 1
+        return None
+    
+    def put(self, model_path: str, model: BaseModel):
+        """Add model to cache"""
+        # Remove if already exists
+        if model_path in self.cache:
+            self.access_order.remove(model_path)
+        
+        # Add to cache
+        self.cache[model_path] = model
+        self.access_order.append(model_path)
+        
+        # Evict oldest if over limit
+        while len(self.cache) > self.max_models:
+            oldest = self.access_order.pop(0)
+            del self.cache[oldest]
+    
+    def clear(self):
+        """Clear all cached models"""
+        self.cache.clear()
+        self.access_order.clear()
+        self.hit_count = 0
+        self.miss_count = 0
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics"""
+        total_requests = self.hit_count + self.miss_count
+        hit_rate = self.hit_count / total_requests if total_requests > 0 else 0.0
+        
+        return {
+            'cached_models': len(self.cache),
+            'max_models': self.max_models,
+            'hit_count': self.hit_count,
+            'miss_count': self.miss_count,
+            'hit_rate': round(hit_rate, 3),
+            'models': list(self.cache.keys())
+        }
+
+# Global model cache instance
+_model_cache = ModelCache()
+
+def load_model(model_path: str, force_reload: bool = False) -> BaseModel:
+    """
+    Load a machine learning model from file
+    
+    Args:
+        model_path: Path to model file
+        force_reload: Skip cache and reload from disk
+    
+    Returns:
+        BaseModel: Loaded model wrapper
+        
+    Raises:
+        ModelNotFoundError: Model file not found
+        UnsupportedModelError: Model format not supported  
+        ModelLoadError: Model loading failed
+    """
+    
+    # Normalize path
+    model_path = os.path.abspath(model_path)
+    
+    # Check if file exists
+    if not os.path.exists(model_path):
+        raise ModelNotFoundError(f"Model file not found: {model_path}")
+    
+    # Check cache first (unless force reload)
+    if not force_reload:
+        cached_model = _model_cache.get(model_path)
+        if cached_model is not None:
+            return cached_model
+    
+    # Detect model format
+    file_ext = os.path.splitext(model_path)[1].lower()
+    
+    try:
+        if file_ext == '.npz':
+            # Load NumPy model
+            import numpy as np
+            model_data = np.load(model_path)
+            model = NumpyModel(dict(model_data), model_path)
+            
+        elif file_ext == '.onnx':
+            # Load ONNX model (placeholder)
+            # import onnxruntime as ort
+            # session = ort.InferenceSession(model_path)
+            # model = ONNXModel(session, model_path)
+            
+            # For now, just create placeholder
+            model = ONNXModel(None, model_path)
+            
+        else:
+            raise UnsupportedModelError(f"Unsupported model format: {file_ext}")
+        
+        # Cache the loaded model
+        _model_cache.put(model_path, model)
+        
+        return model
+        
+    except Exception as e:
+        if isinstance(e, ModelError):
+            raise
+        else:
+            raise ModelLoadError(f"Failed to load model {model_path}: {str(e)}")
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get model cache statistics"""
+    return _model_cache.get_stats()
+
+def clear_cache():
+    """Clear model cache"""
+    _model_cache.clear()
+
+def list_supported_formats() -> List[str]:
+    """Get list of supported model formats"""
+    return ['.npz', '.onnx']
+
+# Model discovery utilities
+def find_models(directory: str, extensions: Optional[List[str]] = None) -> List[str]:
+    """
+    Find all model files in a directory
+    
+    Args:
+        directory: Directory to search
+        extensions: File extensions to look for (default: all supported)
+        
+    Returns:
+        List of model file paths
+    """
+    if extensions is None:
+        extensions = list_supported_formats()
+    
+    models = []
+    if os.path.exists(directory):
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                if any(file.lower().endswith(ext) for ext in extensions):
+                    models.append(os.path.join(root, file))
+    
+    return sorted(models)
+
+def create_dummy_model(output_path: str, input_dim: int = 10, output_dim: int = 3) -> str:
+    """
+    Create a dummy NumPy model for testing
+    
+    Args:
+        output_path: Where to save the model
+        input_dim: Input dimension
+        output_dim: Output dimension
+        
+    Returns:
+        Path to created model
+    """
+    try:
+        import numpy as np
+        
+        # Create random weights and biases
+        weights = np.random.randn(input_dim, output_dim) * 0.1
+        biases = np.random.randn(output_dim) * 0.01
+        
+        # Save as .npz
+        np.savez(output_path, weights=weights, biases=biases)
+        
+        return output_path
+        
+    except ImportError:
+        raise ModelError("NumPy not available for creating dummy model")
+    except Exception as e:
+        raise ModelError(f"Failed to create dummy model: {str(e)}")

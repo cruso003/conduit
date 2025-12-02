@@ -1,0 +1,449 @@
+"""
+Production Streaming Service
+
+Real-time streaming with Server-Sent Events (SSE):
+- ML model streaming inference
+- Live data processing
+- Progress updates
+- Event streams
+- Production monitoring
+"""
+
+from conduit import Conduit
+from conduit.ml import StreamingInferenceEngine, create_streaming_engine
+from conduit.framework.errors import error_handler, abort
+from conduit.framework.monitoring import logging_middleware, create_health_endpoint, _metrics
+from conduit.framework.security import rate_limit, enable_cors
+import time
+import json
+
+app = Conduit()
+
+# ============================================================================
+# MIDDLEWARE STACK
+# ============================================================================
+
+app.use(enable_cors())
+app.use(logging_middleware())
+app.use(rate_limit(max_requests=50, window_seconds=60))  # Lower limit for streaming
+app.use(error_handler())
+
+
+# ============================================================================
+# STREAMING MODELS
+# ============================================================================
+
+class StreamingTextProcessor:
+    """Process text and yield chunks"""
+    
+    def __init__(self):
+        self.name = "StreamingTextProcessor"
+    
+    def process_stream(self, text: str, chunk_size: int = 10):
+        """Process text in chunks"""
+        words = text.split()
+        
+        for i in range(0, len(words), chunk_size):
+            chunk = words[i:i + chunk_size]
+            time.sleep(0.1)  # Simulate processing
+            
+            yield {
+                "chunk_index": i // chunk_size,
+                "words": chunk,
+                "word_count": len(chunk),
+                "progress": min(100, int((i + chunk_size) / len(words) * 100))
+            }
+
+
+class StreamingDataAnalyzer:
+    """Analyze data stream"""
+    
+    def __init__(self):
+        self.name = "StreamingDataAnalyzer"
+    
+    def analyze_stream(self, numbers: List[float]):
+        """Analyze numbers with progressive statistics"""
+        running_sum = 0.0
+        running_count = 0
+        running_min = float('inf')
+        running_max = float('-inf')
+        
+        for i, num in enumerate(numbers):
+            running_sum += num
+            running_count += 1
+            running_min = min(running_min, num)
+            running_max = max(running_max, num)
+            
+            time.sleep(0.05)  # Simulate processing
+            
+            yield {
+                "index": i,
+                "value": num,
+                "running_average": running_sum / running_count,
+                "running_min": running_min,
+                "running_max": running_max,
+                "progress": int((i + 1) / len(numbers) * 100)
+            }
+
+
+class StreamingMLModel:
+    """ML model that streams predictions"""
+    
+    def __init__(self):
+        self.name = "StreamingMLModel"
+    
+    def predict_stream(self, batch: List[List[float]]):
+        """Stream predictions for batch"""
+        for i, features in enumerate(batch):
+            time.sleep(0.02)  # Simulate inference
+            
+            # Simple prediction
+            prediction = sum(features) / len(features) if features else 0.0
+            confidence = min(0.99, 0.5 + (prediction / 100))
+            
+            yield {
+                "index": i,
+                "features": features,
+                "prediction": prediction,
+                "confidence": confidence,
+                "progress": int((i + 1) / len(batch) * 100)
+            }
+
+
+# Create models
+text_processor = StreamingTextProcessor()
+data_analyzer = StreamingDataAnalyzer()
+ml_model = StreamingMLModel()
+
+
+# ============================================================================
+# SSE HELPERS
+# ============================================================================
+
+def format_sse(data: dict, event: str = "message") -> str:
+    """Format data as Server-Sent Event"""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def send_sse_chunk(res, data: dict, event: str = "message"):
+    """Send SSE chunk"""
+    res.write(format_sse(data, event))
+    res.flush()
+
+
+# ============================================================================
+# ROUTES
+# ============================================================================
+
+@app.get("/")
+def home(req, res):
+    """API information"""
+    res.json({
+        "service": "Conduit Streaming Service",
+        "version": "1.0.0",
+        "features": [
+            "Server-Sent Events (SSE)",
+            "Streaming ML inference",
+            "Real-time data processing",
+            "Progress updates"
+        ],
+        "endpoints": {
+            "text_stream": "POST /stream/text",
+            "data_stream": "POST /stream/analyze",
+            "ml_stream": "POST /stream/predict",
+            "events": "GET /stream/events",
+            "health": "GET /health"
+        },
+        "note": "Streaming endpoints return SSE (text/event-stream)"
+    })
+
+
+@app.get("/health")
+def health(req, res):
+    """Health check"""
+    return create_health_endpoint()(req, res)
+
+
+@app.post("/stream/text")
+def stream_text(req, res):
+    """Stream text processing"""
+    data = req.json()
+    
+    if "text" not in data:
+        abort(400, "Missing 'text' field")
+    
+    text = data["text"]
+    chunk_size = data.get("chunk_size", 10)
+    
+    # Set SSE headers
+    res.set_header("Content-Type", "text/event-stream")
+    res.set_header("Cache-Control", "no-cache")
+    res.set_header("Connection", "keep-alive")
+    
+    # Send start event
+    send_sse_chunk(res, {
+        "status": "started",
+        "total_words": len(text.split()),
+        "chunk_size": chunk_size
+    }, event="start")
+    
+    # Stream processing
+    chunk_count = 0
+    for chunk in text_processor.process_stream(text, chunk_size):
+        send_sse_chunk(res, chunk, event="chunk")
+        chunk_count += 1
+        _metrics.increment_counter("stream.text.chunks", 1)
+    
+    # Send completion event
+    send_sse_chunk(res, {
+        "status": "completed",
+        "total_chunks": chunk_count
+    }, event="done")
+    
+    _metrics.increment_counter("stream.text.completed", 1)
+
+
+@app.post("/stream/analyze")
+def stream_analyze(req, res):
+    """Stream data analysis"""
+    data = req.json()
+    
+    if "numbers" not in data:
+        abort(400, "Missing 'numbers' field")
+    
+    numbers = data["numbers"]
+    
+    if not isinstance(numbers, list):
+        abort(400, "'numbers' must be a list")
+    
+    # Set SSE headers
+    res.set_header("Content-Type", "text/event-stream")
+    res.set_header("Cache-Control", "no-cache")
+    res.set_header("Connection", "keep-alive")
+    
+    # Send start event
+    send_sse_chunk(res, {
+        "status": "started",
+        "total_items": len(numbers)
+    }, event="start")
+    
+    # Stream analysis
+    for result in data_analyzer.analyze_stream(numbers):
+        send_sse_chunk(res, result, event="analysis")
+        _metrics.increment_counter("stream.analyze.items", 1)
+    
+    # Send completion event
+    send_sse_chunk(res, {
+        "status": "completed"
+    }, event="done")
+    
+    _metrics.increment_counter("stream.analyze.completed", 1)
+
+
+@app.post("/stream/predict")
+def stream_predict(req, res):
+    """Stream ML predictions"""
+    data = req.json()
+    
+    if "batch" not in data:
+        abort(400, "Missing 'batch' field")
+    
+    batch = data["batch"]
+    
+    if not isinstance(batch, list):
+        abort(400, "'batch' must be a list")
+    
+    # Set SSE headers
+    res.set_header("Content-Type", "text/event-stream")
+    res.set_header("Cache-Control", "no-cache")
+    res.set_header("Connection", "keep-alive")
+    
+    # Send start event
+    send_sse_chunk(res, {
+        "status": "started",
+        "batch_size": len(batch),
+        "model": ml_model.name
+    }, event="start")
+    
+    # Stream predictions
+    start_time = time.time()
+    
+    for prediction in ml_model.predict_stream(batch):
+        send_sse_chunk(res, prediction, event="prediction")
+        _metrics.increment_counter("stream.predict.items", 1)
+    
+    duration = time.time() - start_time
+    
+    # Send completion event
+    send_sse_chunk(res, {
+        "status": "completed",
+        "duration_ms": duration * 1000,
+        "throughput": len(batch) / duration if duration > 0 else 0
+    }, event="done")
+    
+    _metrics.increment_counter("stream.predict.completed", 1)
+
+
+@app.get("/stream/events")
+def stream_events(req, res):
+    """Live event stream (demo)"""
+    # Set SSE headers
+    res.set_header("Content-Type", "text/event-stream")
+    res.set_header("Cache-Control", "no-cache")
+    res.set_header("Connection", "keep-alive")
+    
+    # Send events periodically
+    for i in range(10):
+        event_data = {
+            "event_id": i,
+            "timestamp": int(time.time()),
+            "message": f"Event {i}",
+            "data": {
+                "value": i * 10,
+                "status": "active"
+            }
+        }
+        
+        send_sse_chunk(res, event_data, event="update")
+        time.sleep(1)  # 1 event per second
+    
+    # Send completion
+    send_sse_chunk(res, {
+        "status": "completed",
+        "total_events": 10
+    }, event="done")
+
+
+@app.get("/stream/metrics")
+def stream_metrics(req, res):
+    """Stream live metrics"""
+    # Set SSE headers
+    res.set_header("Content-Type", "text/event-stream")
+    res.set_header("Cache-Control", "no-cache")
+    res.set_header("Connection", "keep-alive")
+    
+    # Stream metrics for 30 seconds
+    for i in range(30):
+        metrics_data = {
+            "timestamp": int(time.time()),
+            "metrics": {
+                "text_chunks": _metrics.get_counter("stream.text.chunks"),
+                "analyze_items": _metrics.get_counter("stream.analyze.items"),
+                "predict_items": _metrics.get_counter("stream.predict.items"),
+                "text_completed": _metrics.get_counter("stream.text.completed"),
+                "analyze_completed": _metrics.get_counter("stream.analyze.completed"),
+                "predict_completed": _metrics.get_counter("stream.predict.completed")
+            }
+        }
+        
+        send_sse_chunk(res, metrics_data, event="metrics")
+        time.sleep(1)
+
+
+# ============================================================================
+# CLIENT EXAMPLE HTML
+# ============================================================================
+
+@app.get("/client")
+def client(req, res):
+    """Serve SSE client example"""
+    html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Conduit Streaming Client</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+        h1 { color: #4ec9b0; }
+        .output { background: #252526; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .event { margin: 5px 0; padding: 5px; border-left: 3px solid #4ec9b0; }
+        button { background: #0e639c; color: white; border: none; padding: 10px 20px; 
+                 cursor: pointer; border-radius: 3px; margin: 5px; }
+        button:hover { background: #1177bb; }
+        #progress { width: 100%; height: 20px; background: #3c3c3c; border-radius: 3px; }
+        #progress-bar { height: 100%; background: #4ec9b0; width: 0%; transition: width 0.3s; }
+    </style>
+</head>
+<body>
+    <h1>🌊 Conduit Streaming Client</h1>
+    
+    <div>
+        <button onclick="streamText()">Stream Text Processing</button>
+        <button onclick="streamAnalyze()">Stream Data Analysis</button>
+        <button onclick="streamPredict()">Stream ML Predictions</button>
+        <button onclick="streamEvents()">Stream Events</button>
+    </div>
+    
+    <div id="progress"><div id="progress-bar"></div></div>
+    
+    <div class="output" id="output"></div>
+    
+    <script>
+        const output = document.getElementById('output');
+        const progressBar = document.getElementById('progress-bar');
+        
+        function log(msg) {
+            const div = document.createElement('div');
+            div.className = 'event';
+            div.textContent = new Date().toLocaleTimeString() + ' - ' + msg;
+            output.insertBefore(div, output.firstChild);
+        }
+        
+        function updateProgress(percent) {
+            progressBar.style.width = percent + '%';
+        }
+        
+        function streamText() {
+            output.innerHTML = '';
+            const eventSource = new EventSource('/stream/events');
+            
+            eventSource.addEventListener('update', (e) => {
+                const data = JSON.parse(e.data);
+                log('Event: ' + JSON.stringify(data));
+            });
+            
+            eventSource.addEventListener('done', (e) => {
+                log('✅ Stream completed');
+                eventSource.close();
+            });
+        }
+        
+        // Add more functions as needed
+    </script>
+</body>
+</html>
+    """
+    
+    res.set_header("Content-Type", "text/html")
+    res.text(html)
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("  CONDUIT STREAMING SERVICE")
+    print("="*70)
+    print("\n✅ Features:")
+    print("  • Server-Sent Events (SSE)")
+    print("  • Streaming text processing")
+    print("  • Real-time data analysis")
+    print("  • Streaming ML predictions")
+    print("  • Live metrics feed")
+    print("\n🌐 Endpoints:")
+    print("  POST /stream/text      - Stream text processing")
+    print("  POST /stream/analyze   - Stream data analysis")
+    print("  POST /stream/predict   - Stream ML predictions")
+    print("  GET  /stream/events    - Live event feed")
+    print("  GET  /stream/metrics   - Live metrics stream")
+    print("  GET  /client           - SSE client demo")
+    print("  GET  /health           - Health check")
+    print("\n💡 Example (curl):")
+    print('  curl -N http://localhost:8080/stream/events')
+    print("\n💡 Browser Demo:")
+    print('  Open: http://localhost:8080/client')
+    print("\n" + "="*70 + "\n")
+    
+    app.run(port=8080)

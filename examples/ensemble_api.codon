@@ -1,0 +1,500 @@
+"""
+Production Multi-Model Ensemble API
+
+Demonstrates ensemble learning with multiple models running in parallel:
+- Voting ensemble
+- Averaging ensemble
+- Weighted ensemble
+- Model diversity
+- Production monitoring
+"""
+
+from conduit import Conduit
+from conduit.ml import create_ensemble, InferenceEngine
+from conduit.ml.resilience import ResilientMLModel
+from conduit.framework.errors import error_handler, abort, InferenceError
+from conduit.framework.monitoring import logging_middleware, create_health_endpoint, _metrics, MLMetrics
+from conduit.framework.security import rate_limit, enable_cors, InputValidator
+import time
+
+app = Conduit()
+validator = InputValidator()
+ml_metrics = MLMetrics()
+
+# ============================================================================
+# MIDDLEWARE STACK
+# ============================================================================
+
+app.use(enable_cors())
+app.use(logging_middleware())
+app.use(rate_limit(max_requests=200, window_seconds=60))
+app.use(error_handler())
+
+
+# ============================================================================
+# MOCK MODELS (Replace with real models in production)
+# ============================================================================
+
+class LinearModel:
+    """Simple linear regression model"""
+    
+    def __init__(self, slope: float = 1.0, intercept: float = 0.0):
+        self.slope = slope
+        self.intercept = intercept
+        self.name = "LinearModel"
+    
+    def predict(self, features: List[float]) -> List[float]:
+        time.sleep(0.001)  # Simulate inference
+        value = sum(features) * self.slope + self.intercept
+        return [value]
+
+
+class PolynomialModel:
+    """Polynomial regression model"""
+    
+    def __init__(self, degree: int = 2):
+        self.degree = degree
+        self.name = "PolynomialModel"
+    
+    def predict(self, features: List[float]) -> List[float]:
+        time.sleep(0.002)  # Simulate inference
+        value = sum(x ** self.degree for x in features)
+        return [value]
+
+
+class ExponentialModel:
+    """Exponential model"""
+    
+    def __init__(self, base: float = 2.0):
+        self.base = base
+        self.name = "ExponentialModel"
+    
+    def predict(self, features: List[float]) -> List[float]:
+        time.sleep(0.001)  # Simulate inference
+        import math
+        value = sum(self.base ** x for x in features if x < 10)  # Prevent overflow
+        return [value]
+
+
+class NeuralNetworkModel:
+    """Simple neural network simulator"""
+    
+    def __init__(self):
+        self.name = "NeuralNetworkModel"
+        self.weights = [0.5, 0.3, 0.2]
+    
+    def predict(self, features: List[float]) -> List[float]:
+        time.sleep(0.003)  # Simulate inference
+        # Simple weighted sum with activation
+        weighted_sum = sum(f * w for f, w in zip(features, self.weights[:len(features)]))
+        activated = max(0, weighted_sum)  # ReLU
+        return [activated]
+
+
+# ============================================================================
+# CREATE MODELS WITH RESILIENCE
+# ============================================================================
+
+# Base models
+linear_model = LinearModel(slope=1.5, intercept=10.0)
+poly_model = PolynomialModel(degree=2)
+exp_model = ExponentialModel(base=1.5)
+nn_model = NeuralNetworkModel()
+
+# Wrap with resilience
+resilient_models = {
+    "linear": ResilientMLModel(
+        model=linear_model,
+        use_circuit_breaker=True,
+        use_retry=True
+    ),
+    "polynomial": ResilientMLModel(
+        model=poly_model,
+        use_circuit_breaker=True,
+        use_retry=True
+    ),
+    "exponential": ResilientMLModel(
+        model=exp_model,
+        use_circuit_breaker=True,
+        use_retry=True
+    ),
+    "neural_network": ResilientMLModel(
+        model=nn_model,
+        use_circuit_breaker=True,
+        use_retry=True
+    )
+}
+
+
+# ============================================================================
+# ENSEMBLE STRATEGIES
+# ============================================================================
+
+class VotingEnsemble:
+    """Voting ensemble for classification"""
+    
+    def __init__(self, models: List):
+        self.models = models
+    
+    def predict(self, features: List[float]) -> dict:
+        """Get predictions from all models and vote"""
+        predictions = []
+        model_results = []
+        
+        for i, model in enumerate(self.models):
+            try:
+                start = time.time()
+                pred = model.predict(features)
+                duration = time.time() - start
+                
+                predictions.append(pred[0])
+                model_results.append({
+                    "model": f"model_{i}",
+                    "prediction": pred[0],
+                    "duration_ms": duration * 1000
+                })
+            except Exception as e:
+                model_results.append({
+                    "model": f"model_{i}",
+                    "error": str(e)
+                })
+        
+        # Majority vote (for classification) or median (for regression)
+        if predictions:
+            final_prediction = sorted(predictions)[len(predictions) // 2]  # Median
+        else:
+            final_prediction = 0.0
+        
+        return {
+            "prediction": final_prediction,
+            "model_predictions": model_results,
+            "models_succeeded": len(predictions),
+            "models_failed": len(self.models) - len(predictions)
+        }
+
+
+class AveragingEnsemble:
+    """Averaging ensemble"""
+    
+    def __init__(self, models: List):
+        self.models = models
+    
+    def predict(self, features: List[float]) -> dict:
+        """Average predictions from all models"""
+        predictions = []
+        model_results = []
+        
+        for i, model in enumerate(self.models):
+            try:
+                start = time.time()
+                pred = model.predict(features)
+                duration = time.time() - start
+                
+                predictions.append(pred[0])
+                model_results.append({
+                    "model": f"model_{i}",
+                    "prediction": pred[0],
+                    "duration_ms": duration * 1000
+                })
+            except Exception as e:
+                model_results.append({
+                    "model": f"model_{i}",
+                    "error": str(e)
+                })
+        
+        # Average
+        if predictions:
+            final_prediction = sum(predictions) / len(predictions)
+        else:
+            final_prediction = 0.0
+        
+        return {
+            "prediction": final_prediction,
+            "model_predictions": model_results,
+            "models_succeeded": len(predictions),
+            "models_failed": len(self.models) - len(predictions)
+        }
+
+
+class WeightedEnsemble:
+    """Weighted ensemble"""
+    
+    def __init__(self, models: List, weights: List[float]):
+        self.models = models
+        self.weights = weights
+        
+        # Normalize weights
+        total = sum(weights)
+        self.weights = [w / total for w in weights]
+    
+    def predict(self, features: List[float]) -> dict:
+        """Weighted average of predictions"""
+        predictions = []
+        weights_used = []
+        model_results = []
+        
+        for i, (model, weight) in enumerate(zip(self.models, self.weights)):
+            try:
+                start = time.time()
+                pred = model.predict(features)
+                duration = time.time() - start
+                
+                predictions.append(pred[0])
+                weights_used.append(weight)
+                model_results.append({
+                    "model": f"model_{i}",
+                    "prediction": pred[0],
+                    "weight": weight,
+                    "duration_ms": duration * 1000
+                })
+            except Exception as e:
+                model_results.append({
+                    "model": f"model_{i}",
+                    "error": str(e),
+                    "weight": weight
+                })
+        
+        # Weighted average
+        if predictions and weights_used:
+            # Renormalize weights for succeeded models
+            total_weight = sum(weights_used)
+            normalized_weights = [w / total_weight for w in weights_used]
+            
+            final_prediction = sum(p * w for p, w in zip(predictions, normalized_weights))
+        else:
+            final_prediction = 0.0
+        
+        return {
+            "prediction": final_prediction,
+            "model_predictions": model_results,
+            "models_succeeded": len(predictions),
+            "models_failed": len(self.models) - len(predictions)
+        }
+
+
+# ============================================================================
+# CREATE ENSEMBLES
+# ============================================================================
+
+models_list = list(resilient_models.values())
+
+voting_ensemble = VotingEnsemble(models_list)
+averaging_ensemble = AveragingEnsemble(models_list)
+weighted_ensemble = WeightedEnsemble(
+    models_list,
+    weights=[0.4, 0.3, 0.2, 0.1]  # Prefer linear and polynomial models
+)
+
+
+# ============================================================================
+# HEALTH CHECKS
+# ============================================================================
+
+from conduit.framework.monitoring import _health_check
+
+def check_models() -> tuple[bool, str]:
+    # Check if models are responsive
+    test_features = [1.0, 2.0, 3.0]
+    try:
+        linear_model.predict(test_features)
+        return (True, f"{len(resilient_models)} models ready")
+    except:
+        return (False, "Models not responding")
+
+_health_check.register_check("models", check_models)
+
+
+# ============================================================================
+# ROUTES
+# ============================================================================
+
+@app.get("/")
+def home(req, res):
+    """API information"""
+    res.json({
+        "service": "Conduit Ensemble ML API",
+        "version": "1.0.0",
+        "models": list(resilient_models.keys()),
+        "ensembles": ["voting", "averaging", "weighted"],
+        "endpoints": {
+            "single_model": "POST /predict/:model_name",
+            "voting": "POST /ensemble/voting",
+            "averaging": "POST /ensemble/averaging",
+            "weighted": "POST /ensemble/weighted",
+            "all_ensembles": "POST /ensemble/all",
+            "health": "GET /health"
+        }
+    })
+
+
+@app.get("/health")
+def health(req, res):
+    """Health check"""
+    return create_health_endpoint()(req, res)
+
+
+@app.post("/predict/:model_name")
+def predict_single(req, res):
+    """Predict with single model"""
+    model_name = req.params["model_name"]
+    
+    if model_name not in resilient_models:
+        abort(404, "Model not found", f"Available models: {list(resilient_models.keys())}")
+    
+    data = req.json()
+    errors = validator.validate_required(data, ["features"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    features = data["features"]
+    
+    # Predict
+    start = time.time()
+    try:
+        model = resilient_models[model_name]
+        prediction = model.predict(features)
+        duration = time.time() - start
+        
+        ml_metrics.track_inference(model_name, duration, success=True)
+        
+        res.json({
+            "model": model_name,
+            "prediction": prediction,
+            "duration_ms": duration * 1000
+        })
+    
+    except Exception as e:
+        ml_metrics.track_inference(model_name, time.time() - start, success=False)
+        raise InferenceError(f"Prediction failed for {model_name}", str(e))
+
+
+@app.post("/ensemble/voting")
+def ensemble_voting(req, res):
+    """Voting ensemble prediction"""
+    data = req.json()
+    errors = validator.validate_required(data, ["features"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    features = data["features"]
+    
+    start = time.time()
+    result = voting_ensemble.predict(features)
+    duration = time.time() - start
+    
+    ml_metrics.track_inference("ensemble_voting", duration, success=True)
+    
+    result["ensemble"] = "voting"
+    result["total_duration_ms"] = duration * 1000
+    
+    res.json(result)
+
+
+@app.post("/ensemble/averaging")
+def ensemble_averaging(req, res):
+    """Averaging ensemble prediction"""
+    data = req.json()
+    errors = validator.validate_required(data, ["features"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    features = data["features"]
+    
+    start = time.time()
+    result = averaging_ensemble.predict(features)
+    duration = time.time() - start
+    
+    ml_metrics.track_inference("ensemble_averaging", duration, success=True)
+    
+    result["ensemble"] = "averaging"
+    result["total_duration_ms"] = duration * 1000
+    
+    res.json(result)
+
+
+@app.post("/ensemble/weighted")
+def ensemble_weighted(req, res):
+    """Weighted ensemble prediction"""
+    data = req.json()
+    errors = validator.validate_required(data, ["features"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    features = data["features"]
+    
+    start = time.time()
+    result = weighted_ensemble.predict(features)
+    duration = time.time() - start
+    
+    ml_metrics.track_inference("ensemble_weighted", duration, success=True)
+    
+    result["ensemble"] = "weighted"
+    result["total_duration_ms"] = duration * 1000
+    
+    res.json(result)
+
+
+@app.post("/ensemble/all")
+def ensemble_all(req, res):
+    """Run all ensemble strategies and compare"""
+    data = req.json()
+    errors = validator.validate_required(data, ["features"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    features = data["features"]
+    
+    # Run all ensembles
+    results = {}
+    
+    start = time.time()
+    results["voting"] = voting_ensemble.predict(features)
+    results["voting"]["duration_ms"] = (time.time() - start) * 1000
+    
+    start = time.time()
+    results["averaging"] = averaging_ensemble.predict(features)
+    results["averaging"]["duration_ms"] = (time.time() - start) * 1000
+    
+    start = time.time()
+    results["weighted"] = weighted_ensemble.predict(features)
+    results["weighted"]["duration_ms"] = (time.time() - start) * 1000
+    
+    res.json({
+        "ensembles": results,
+        "comparison": {
+            "voting_prediction": results["voting"]["prediction"],
+            "averaging_prediction": results["averaging"]["prediction"],
+            "weighted_prediction": results["weighted"]["prediction"]
+        }
+    })
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("  CONDUIT ENSEMBLE ML API")
+    print("="*70)
+    print("\n✅ Models:")
+    for name in resilient_models.keys():
+        print(f"  • {name}")
+    print("\n✅ Ensemble Strategies:")
+    print("  • Voting (median of predictions)")
+    print("  • Averaging (mean of predictions)")
+    print("  • Weighted (weighted mean, custom weights)")
+    print("\n🌐 Endpoints:")
+    print("  POST /predict/:model_name  - Single model prediction")
+    print("  POST /ensemble/voting      - Voting ensemble")
+    print("  POST /ensemble/averaging   - Averaging ensemble")
+    print("  POST /ensemble/weighted    - Weighted ensemble")
+    print("  POST /ensemble/all         - Compare all strategies")
+    print("  GET  /health               - Health check")
+    print("\n💡 Example:")
+    print('  curl -X POST http://localhost:8080/ensemble/averaging \\')
+    print('    -H "Content-Type: application/json" \\')
+    print('    -d \'{"features": [1.0, 2.0, 3.0]}\'')
+    print("\n" + "="*70 + "\n")
+    
+    app.run(port=8080)

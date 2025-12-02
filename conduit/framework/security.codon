@@ -1,0 +1,389 @@
+"""
+Security Middleware
+
+Provides input validation, rate limiting, authentication,
+and CORS configuration for production security.
+"""
+
+import time
+from python import threading, hashlib, json
+
+
+class RateLimiter:
+    """
+    Token bucket rate limiter
+    """
+    
+    def __init__(self, max_requests: int = 100, window_seconds: float = 60.0):
+        """
+        Initialize rate limiter
+        
+        Args:
+            max_requests: Maximum requests allowed in window
+            window_seconds: Time window in seconds
+        """
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = {}  # IP -> list of timestamps
+        self.lock = threading.Lock()
+    
+    def is_allowed(self, client_id: str) -> bool:
+        """
+        Check if request is allowed
+        
+        Args:
+            client_id: Client identifier (usually IP address)
+            
+        Returns:
+            True if request is allowed, False otherwise
+        """
+        current_time = time.time()
+        
+        with self.lock:
+            # Get request history for client
+            if client_id not in self.requests:
+                self.requests[client_id] = []
+            
+            requests = self.requests[client_id]
+            
+            # Remove old requests outside window
+            cutoff_time = current_time - self.window_seconds
+            requests[:] = [t for t in requests if t > cutoff_time]
+            
+            # Check if under limit
+            if len(requests) < self.max_requests:
+                requests.append(current_time)
+                return True
+            
+            return False
+    
+    def get_remaining(self, client_id: str) -> int:
+        """Get remaining requests for client"""
+        with self.lock:
+            if client_id not in self.requests:
+                return self.max_requests
+            
+            current_time = time.time()
+            cutoff_time = current_time - self.window_seconds
+            requests = [t for t in self.requests[client_id] if t > cutoff_time]
+            
+            return max(0, self.max_requests - len(requests))
+    
+    def reset(self, client_id: str):
+        """Reset rate limit for client"""
+        with self.lock:
+            if client_id in self.requests:
+                del self.requests[client_id]
+
+
+class RateLimitMiddleware:
+    """
+    Rate limiting middleware
+    """
+    
+    def __init__(self, max_requests: int = 100, window_seconds: float = 60.0):
+        self.limiter = RateLimiter(max_requests, window_seconds)
+    
+    def handle(self, req, res, next_handler):
+        """Handle request with rate limiting"""
+        # Get client ID (IP address)
+        client_id = req.get_header("X-Forwarded-For") or req.remote_addr or "unknown"
+        
+        # Check rate limit
+        if not self.limiter.is_allowed(client_id):
+            remaining = self.limiter.get_remaining(client_id)
+            
+            res.status(429)
+            res.header("X-RateLimit-Limit", str(self.limiter.max_requests))
+            res.header("X-RateLimit-Remaining", "0")
+            res.header("Content-Type", "application/json")
+            res.send(json.dumps({
+                "error": {
+                    "status": 429,
+                    "message": "Too many requests",
+                    "type": "RateLimitExceeded"
+                }
+            }))
+            return
+        
+        # Add rate limit headers
+        remaining = self.limiter.get_remaining(client_id)
+        res.header("X-RateLimit-Limit", str(self.limiter.max_requests))
+        res.header("X-RateLimit-Remaining", str(remaining))
+        
+        # Continue to next handler
+        next_handler(req, res)
+
+
+class InputValidator:
+    """
+    Input validation for request data
+    """
+    
+    @staticmethod
+    def validate_required(data: dict, required_fields: list) -> tuple:
+        """
+        Validate required fields
+        
+        Args:
+            data: Input data dictionary
+            required_fields: List of required field names
+            
+        Returns:
+            (is_valid, error_message)
+        """
+        for field in required_fields:
+            if field not in data:
+                return False, f"Missing required field: {field}"
+            
+            if data[field] is None or data[field] == "":
+                return False, f"Field cannot be empty: {field}"
+        
+        return True, ""
+    
+    @staticmethod
+    def validate_type(value, expected_type: str) -> bool:
+        """Validate value type"""
+        if expected_type == "string":
+            return isinstance(value, str)
+        elif expected_type == "int":
+            return isinstance(value, int)
+        elif expected_type == "float":
+            return isinstance(value, (int, float))
+        elif expected_type == "bool":
+            return isinstance(value, bool)
+        elif expected_type == "list":
+            return isinstance(value, list)
+        elif expected_type == "dict":
+            return isinstance(value, dict)
+        return False
+    
+    @staticmethod
+    def validate_range(value: float, min_val: float = None, max_val: float = None) -> bool:
+        """Validate numeric range"""
+        if min_val is not None and value < min_val:
+            return False
+        if max_val is not None and value > max_val:
+            return False
+        return True
+    
+    @staticmethod
+    def validate_length(value: str, min_len: int = None, max_len: int = None) -> bool:
+        """Validate string length"""
+        length = len(value)
+        if min_len is not None and length < min_len:
+            return False
+        if max_len is not None and length > max_len:
+            return False
+        return True
+    
+    @staticmethod
+    def validate_array_shape(arr: list, expected_shape: tuple) -> bool:
+        """Validate array shape for ML inputs"""
+        if not isinstance(arr, list):
+            return False
+        
+        # Check first dimension
+        if len(arr) != expected_shape[0]:
+            return False
+        
+        # Check nested dimensions
+        if len(expected_shape) > 1:
+            for item in arr:
+                if not isinstance(item, list):
+                    return False
+                if len(item) != expected_shape[1]:
+                    return False
+        
+        return True
+
+
+class AuthMiddleware:
+    """
+    Authentication middleware
+    """
+    
+    def __init__(self, api_keys: set = None, header_name: str = "X-API-Key"):
+        """
+        Initialize auth middleware
+        
+        Args:
+            api_keys: Set of valid API keys
+            header_name: Header name for API key
+        """
+        self.api_keys = api_keys or set()
+        self.header_name = header_name
+    
+    def add_api_key(self, key: str):
+        """Add valid API key"""
+        self.api_keys.add(key)
+    
+    def remove_api_key(self, key: str):
+        """Remove API key"""
+        self.api_keys.discard(key)
+    
+    def handle(self, req, res, next_handler):
+        """Handle request with authentication"""
+        # Get API key from header
+        api_key = req.get_header(self.header_name)
+        
+        if not api_key:
+            res.status(401)
+            res.header("Content-Type", "application/json")
+            res.send(json.dumps({
+                "error": {
+                    "status": 401,
+                    "message": "Missing API key",
+                    "type": "Unauthorized"
+                }
+            }))
+            return
+        
+        # Validate API key
+        if api_key not in self.api_keys:
+            res.status(401)
+            res.header("Content-Type", "application/json")
+            res.send(json.dumps({
+                "error": {
+                    "status": 401,
+                    "message": "Invalid API key",
+                    "type": "Unauthorized"
+                }
+            }))
+            return
+        
+        # Continue to next handler
+        next_handler(req, res)
+
+
+class CORSMiddleware:
+    """
+    CORS (Cross-Origin Resource Sharing) middleware
+    """
+    
+    def __init__(self,
+                 allowed_origins: list = None,
+                 allowed_methods: list = None,
+                 allowed_headers: list = None,
+                 max_age: int = 86400):
+        """
+        Initialize CORS middleware
+        
+        Args:
+            allowed_origins: List of allowed origins (* for all)
+            allowed_methods: List of allowed HTTP methods
+            allowed_headers: List of allowed headers
+            max_age: Preflight cache duration in seconds
+        """
+        self.allowed_origins = allowed_origins or ["*"]
+        self.allowed_methods = allowed_methods or ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        self.allowed_headers = allowed_headers or ["Content-Type", "Authorization", "X-API-Key"]
+        self.max_age = max_age
+    
+    def handle(self, req, res, next_handler):
+        """Handle request with CORS"""
+        origin = req.get_header("Origin") or "*"
+        
+        # Check if origin is allowed
+        if "*" in self.allowed_origins or origin in self.allowed_origins:
+            res.header("Access-Control-Allow-Origin", origin)
+            res.header("Access-Control-Allow-Methods", ", ".join(self.allowed_methods))
+            res.header("Access-Control-Allow-Headers", ", ".join(self.allowed_headers))
+            res.header("Access-Control-Max-Age", str(self.max_age))
+        
+        # Handle preflight OPTIONS request
+        if req.method == "OPTIONS":
+            res.status(204)
+            res.send("")
+            return
+        
+        # Continue to next handler
+        next_handler(req, res)
+
+
+class SecurityHeaders:
+    """
+    Add security headers to responses
+    """
+    
+    def handle(self, req, res, next_handler):
+        """Add security headers"""
+        res.header("X-Content-Type-Options", "nosniff")
+        res.header("X-Frame-Options", "DENY")
+        res.header("X-XSS-Protection", "1; mode=block")
+        res.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        
+        # Continue to next handler
+        next_handler(req, res)
+
+
+# Convenience functions
+def rate_limit(max_requests: int = 100, window_seconds: float = 60.0):
+    """
+    Create rate limiting middleware
+    
+    Usage:
+        app.use(rate_limit(max_requests=100, window_seconds=60))
+    """
+    return RateLimitMiddleware(max_requests, window_seconds)
+
+
+def require_auth(api_keys: set = None):
+    """
+    Create authentication middleware
+    
+    Usage:
+        app.use(require_auth(api_keys={"secret-key-1", "secret-key-2"}))
+    """
+    return AuthMiddleware(api_keys)
+
+
+def enable_cors(allowed_origins: list = None):
+    """
+    Create CORS middleware
+    
+    Usage:
+        app.use(enable_cors(allowed_origins=["https://example.com"]))
+    """
+    return CORSMiddleware(allowed_origins)
+
+
+def security_headers():
+    """
+    Create security headers middleware
+    
+    Usage:
+        app.use(security_headers())
+    """
+    return SecurityHeaders()
+
+
+def validate_ml_input(data: dict, expected_shape: tuple = None) -> tuple:
+    """
+    Validate ML model input
+    
+    Args:
+        data: Input data
+        expected_shape: Expected array shape
+        
+    Returns:
+        (is_valid, error_message)
+    """
+    validator = InputValidator()
+    
+    # Check required fields
+    is_valid, error = validator.validate_required(data, ["features"])
+    if not is_valid:
+        return False, error
+    
+    features = data["features"]
+    
+    # Check type
+    if not isinstance(features, list):
+        return False, "features must be an array"
+    
+    # Check shape if specified
+    if expected_shape and not validator.validate_array_shape(features, expected_shape):
+        return False, f"features must have shape {expected_shape}"
+    
+    return True, ""

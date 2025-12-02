@@ -1,0 +1,407 @@
+# Conduit ML Pipeline Module
+# Multi-model orchestration for complex AI workflows
+
+from typing import List, Dict, Any, Callable, Optional, Tuple
+from conduit.ml.loader import BaseModel, load_model
+from conduit.ml.inference import InferenceEngine
+import time
+
+# Pipeline-related exceptions
+class PipelineError(Exception):
+    """Base exception for pipeline errors"""
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+class ModelExecutionError(PipelineError):
+    """Raised when a model in the pipeline fails"""
+    pass
+
+class PipelineConfigError(PipelineError):
+    """Raised when pipeline configuration is invalid"""
+    pass
+
+# Pipeline stage
+class PipelineStage:
+    """Represents a single stage in an ML pipeline"""
+    
+    def __init__(self, name: str, model: BaseModel, 
+                 preprocessor: Optional[Callable] = None,
+                 postprocessor: Optional[Callable] = None):
+        """
+        Initialize a pipeline stage
+        
+        Args:
+            name: Stage name
+            model: The ML model for this stage
+            preprocessor: Optional preprocessing function
+            postprocessor: Optional postprocessing function
+        """
+        self.name = name
+        self.model = model
+        self.engine = InferenceEngine(model)
+        
+        if preprocessor:
+            self.engine.set_preprocessor(preprocessor)
+        if postprocessor:
+            self.engine.set_postprocessor(postprocessor)
+        
+        self.execution_count = 0
+        self.total_time = 0.0
+        self.error_count = 0
+    
+    def execute(self, input_data: Any) -> Any:
+        """
+        Execute this pipeline stage
+        
+        Args:
+            input_data: Input for this stage
+            
+        Returns:
+            Stage output
+        """
+        start_time = time.time()
+        
+        try:
+            result = self.engine.predict(input_data)
+            self.execution_count += 1
+            self.total_time += (time.time() - start_time)
+            return result
+        except Exception as e:
+            self.error_count += 1
+            raise ModelExecutionError(f"Stage '{self.name}' failed: {str(e)}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get stage statistics"""
+        avg_time = self.total_time / self.execution_count if self.execution_count > 0 else 0
+        
+        return {
+            "name": self.name,
+            "model": self.model.model_name,
+            "executions": self.execution_count,
+            "errors": self.error_count,
+            "total_time_sec": round(self.total_time, 3),
+            "avg_time_ms": round(avg_time * 1000, 2)
+        }
+
+# ML Pipeline
+class MLPipeline:
+    """
+    Multi-stage ML pipeline for complex AI workflows
+    
+    Enables chaining multiple models together with automatic
+    data flow between stages.
+    """
+    
+    def __init__(self, name: str = "pipeline"):
+        """
+        Initialize ML pipeline
+        
+        Args:
+            name: Pipeline name
+        """
+        self.name = name
+        self.stages: List[PipelineStage] = []
+        self.execution_count = 0
+        self.error_count = 0
+        self.cache_enabled = False
+        self.cache: Dict[str, Any] = {}
+    
+    def add_stage(self, stage: PipelineStage):
+        """Add a stage to the pipeline"""
+        self.stages.append(stage)
+    
+    def execute(self, input_data: Any, cache_results: bool = False) -> Any:
+        """
+        Execute the entire pipeline
+        
+        Args:
+            input_data: Initial input data
+            cache_results: Whether to cache intermediate results
+            
+        Returns:
+            Final pipeline output
+        """
+        if not self.stages:
+            raise PipelineConfigError("Pipeline has no stages")
+        
+        try:
+            current_data = input_data
+            intermediate_results = {}
+            
+            # Execute each stage sequentially
+            for i, stage in enumerate(self.stages):
+                stage_start = time.time()
+                current_data = stage.execute(current_data)
+                
+                # Cache if requested
+                if cache_results:
+                    intermediate_results[stage.name] = {
+                        "output": current_data,
+                        "time_ms": round((time.time() - stage_start) * 1000, 2)
+                    }
+            
+            self.execution_count += 1
+            
+            # Return final result or all intermediate results
+            if cache_results:
+                return {
+                    "final_output": current_data,
+                    "intermediate_results": intermediate_results,
+                    "pipeline": self.name
+                }
+            else:
+                return current_data
+                
+        except Exception as e:
+            self.error_count += 1
+            if isinstance(e, PipelineError):
+                raise
+            else:
+                raise PipelineError(f"Pipeline '{self.name}' failed: {str(e)}")
+    
+    def execute_parallel(self, input_data: Any) -> List[Any]:
+        """
+        Execute all stages in parallel (each gets the same input)
+        
+        Useful for ensemble models or multi-perspective analysis
+        
+        Args:
+            input_data: Input data for all stages
+            
+        Returns:
+            List of outputs from each stage
+        """
+        if not self.stages:
+            raise PipelineConfigError("Pipeline has no stages")
+        
+        results = []
+        errors = []
+        
+        for stage in self.stages:
+            try:
+                result = stage.execute(input_data)
+                results.append(result)
+            except Exception as e:
+                errors.append((stage.name, str(e)))
+                results.append(None)
+        
+        if errors:
+            print(f"Warning: {len(errors)} stage(s) failed in parallel execution")
+        
+        return results
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get pipeline statistics"""
+        stage_stats = [stage.get_stats() for stage in self.stages]
+        
+        total_executions = sum(s["executions"] for s in stage_stats)
+        total_errors = sum(s["errors"] for s in stage_stats)
+        
+        return {
+            "name": self.name,
+            "num_stages": len(self.stages),
+            "pipeline_executions": self.execution_count,
+            "pipeline_errors": self.error_count,
+            "total_stage_executions": total_executions,
+            "total_stage_errors": total_errors,
+            "stages": stage_stats
+        }
+
+# Ensemble predictor
+class EnsemblePredictor:
+    """
+    Ensemble prediction combining multiple models
+    
+    Supports voting, averaging, and custom aggregation strategies
+    """
+    
+    def __init__(self, models: List[BaseModel], strategy: str = "average"):
+        """
+        Initialize ensemble predictor
+        
+        Args:
+            models: List of models to ensemble
+            strategy: Aggregation strategy ('average', 'vote', 'max', 'min')
+        """
+        self.models = models
+        self.strategy = strategy
+        self.engines = [InferenceEngine(model) for model in models]
+        self.prediction_count = 0
+    
+    def predict(self, input_data: Any) -> Any:
+        """
+        Generate ensemble prediction
+        
+        Args:
+            input_data: Input for all models
+            
+        Returns:
+            Aggregated prediction
+        """
+        # Get predictions from all models
+        predictions = []
+        for engine in self.engines:
+            try:
+                pred = engine.predict(input_data)
+                predictions.append(pred)
+            except Exception as e:
+                print(f"Warning: Model failed in ensemble: {str(e)}")
+        
+        if not predictions:
+            raise PipelineError("All models in ensemble failed")
+        
+        self.prediction_count += 1
+        
+        # Aggregate based on strategy
+        return self._aggregate(predictions)
+    
+    def _aggregate(self, predictions: List[Any]) -> Any:
+        """Aggregate predictions based on strategy"""
+        import numpy as np
+        
+        if self.strategy == "average":
+            # Average of all predictions
+            return np.mean(predictions, axis=0)
+        
+        elif self.strategy == "vote":
+            # Majority voting for classification
+            votes = {}
+            for pred in predictions:
+                # Assume pred is class index or label
+                pred_key = str(pred) if not hasattr(pred, '__iter__') else str(np.argmax(pred))
+                votes[pred_key] = votes.get(pred_key, 0) + 1
+            
+            # Return most voted
+            return max(votes.keys(), key=lambda k: votes[k])
+        
+        elif self.strategy == "max":
+            return np.max(predictions, axis=0)
+        
+        elif self.strategy == "min":
+            return np.min(predictions, axis=0)
+        
+        else:
+            raise PipelineConfigError(f"Unknown strategy: {self.strategy}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get ensemble statistics"""
+        return {
+            "num_models": len(self.models),
+            "strategy": self.strategy,
+            "predictions": self.prediction_count
+        }
+
+# Pipeline builder utility
+class PipelineBuilder:
+    """Fluent builder for creating ML pipelines"""
+    
+    def __init__(self, name: str = "pipeline"):
+        """Initialize builder"""
+        self.pipeline = MLPipeline(name)
+        self._stage_count = 0
+    
+    def add_model(self, model_path: str, 
+                  stage_name: Optional[str] = None,
+                  preprocessor: Optional[Callable] = None,
+                  postprocessor: Optional[Callable] = None):
+        """
+        Add a model as a pipeline stage
+        
+        Args:
+            model_path: Path to model file
+            stage_name: Optional stage name
+            preprocessor: Optional preprocessing function
+            postprocessor: Optional postprocessing function
+            
+        Returns:
+            Self for chaining
+        """
+        model = load_model(model_path)
+        
+        if stage_name is None:
+            stage_name = f"stage_{self._stage_count}"
+            self._stage_count += 1
+        
+        stage = PipelineStage(stage_name, model, preprocessor, postprocessor)
+        self.pipeline.add_stage(stage)
+        
+        return self
+    
+    def build(self) -> MLPipeline:
+        """Build and return the pipeline"""
+        return self.pipeline
+
+# Conditional pipeline (if/else routing)
+class ConditionalPipeline:
+    """
+    Pipeline with conditional routing based on intermediate results
+    """
+    
+    def __init__(self, name: str = "conditional_pipeline"):
+        """Initialize conditional pipeline"""
+        self.name = name
+        self.routes: List[Tuple[Callable, MLPipeline]] = []
+        self.default_pipeline: Optional[MLPipeline] = None
+    
+    def add_route(self, condition: Callable[[Any], bool], pipeline: MLPipeline):
+        """
+        Add a conditional route
+        
+        Args:
+            condition: Function that takes intermediate result and returns bool
+            pipeline: Pipeline to execute if condition is True
+        """
+        self.routes.append((condition, pipeline))
+    
+    def set_default(self, pipeline: MLPipeline):
+        """Set default pipeline if no conditions match"""
+        self.default_pipeline = pipeline
+    
+    def execute(self, input_data: Any) -> Any:
+        """
+        Execute with conditional routing
+        
+        Args:
+            input_data: Initial input
+            
+        Returns:
+            Output from selected pipeline
+        """
+        # Check each condition
+        for condition, pipeline in self.routes:
+            if condition(input_data):
+                return pipeline.execute(input_data)
+        
+        # Use default if no match
+        if self.default_pipeline:
+            return self.default_pipeline.execute(input_data)
+        
+        raise PipelineError("No matching route and no default pipeline")
+
+# Utility functions
+def create_pipeline(name: str = "pipeline") -> PipelineBuilder:
+    """
+    Create a new pipeline using builder pattern
+    
+    Args:
+        name: Pipeline name
+        
+    Returns:
+        PipelineBuilder for fluent configuration
+    """
+    return PipelineBuilder(name)
+
+def create_ensemble(model_paths: List[str], strategy: str = "average") -> EnsemblePredictor:
+    """
+    Create an ensemble predictor
+    
+    Args:
+        model_paths: Paths to model files
+        strategy: Aggregation strategy
+        
+    Returns:
+        Configured EnsemblePredictor
+    """
+    models = [load_model(path) for path in model_paths]
+    return EnsemblePredictor(models, strategy)

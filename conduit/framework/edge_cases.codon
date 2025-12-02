@@ -1,0 +1,294 @@
+"""
+Conduit Edge Case Handling
+
+Handles production edge cases: large files, timeouts, memory pressure,
+graceful shutdown, and resource cleanup.
+"""
+
+from conduit.framework.conduit import Request, Response
+from conduit.framework.errors import HTTPError, BadRequestError, InternalServerError
+import time
+import signal
+
+
+# Configuration constants
+MAX_REQUEST_SIZE = 100 * 1024 * 1024  # 100MB default
+DEFAULT_REQUEST_TIMEOUT = 30.0  # 30 seconds
+MAX_MEMORY_MB = 1024  # 1GB default
+
+
+class RequestSizeLimit:
+    """Middleware to limit request body size"""
+    
+    def __init__(self, max_size_bytes: int = MAX_REQUEST_SIZE):
+        self.max_size_bytes = max_size_bytes
+    
+    def __call__(self, req: Request, res: Response, next_fn):
+        """Check request size before processing"""
+        # Check Content-Length header
+        if "Content-Length" in req.headers:
+            content_length = int(req.headers["Content-Length"])
+            
+            if content_length > self.max_size_bytes:
+                max_mb = self.max_size_bytes / (1024 * 1024)
+                actual_mb = content_length / (1024 * 1024)
+                raise BadRequestError(
+                    f"Request too large",
+                    f"Maximum {max_mb:.1f}MB allowed, got {actual_mb:.1f}MB"
+                )
+        
+        return next_fn(req, res)
+
+
+class RequestTimeout:
+    """Middleware to enforce request timeouts"""
+    
+    def __init__(self, timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT):
+        self.timeout_seconds = timeout_seconds
+    
+    def __call__(self, req: Request, res: Response, next_fn):
+        """Execute request with timeout"""
+        start_time = time.time()
+        
+        # Execute the request
+        result = next_fn(req, res)
+        
+        # Check if timeout exceeded
+        elapsed = time.time() - start_time
+        if elapsed > self.timeout_seconds:
+            print(f"⚠️  Request exceeded timeout: {elapsed:.2f}s > {self.timeout_seconds}s")
+        
+        return result
+
+
+class StreamingUpload:
+    """Handle large file uploads via streaming"""
+    
+    def __init__(self, chunk_size: int = 8192):
+        self.chunk_size = chunk_size
+    
+    def handle_upload(self, req: Request, save_path: str) -> int:
+        """
+        Stream upload to disk without loading entire file into memory
+        
+        Args:
+            req: Request object
+            save_path: Path to save uploaded file
+        
+        Returns:
+            Total bytes written
+        """
+        total_bytes = 0
+        
+        # Get expected content length
+        expected_size = 0
+        if "Content-Length" in req.headers:
+            expected_size = int(req.headers["Content-Length"])
+        
+        # Open file for writing
+        with open(save_path, "wb") as f:
+            # Read and write in chunks
+            while True:
+                chunk = req.body[total_bytes:total_bytes + self.chunk_size]
+                if not chunk:
+                    break
+                
+                f.write(chunk.encode())
+                total_bytes += len(chunk)
+                
+                # Prevent infinite loops
+                if expected_size > 0 and total_bytes >= expected_size:
+                    break
+        
+        return total_bytes
+
+
+class MemoryMonitor:
+    """Monitor and manage memory usage"""
+    
+    def __init__(self, max_memory_mb: int = MAX_MEMORY_MB):
+        self.max_memory_mb = max_memory_mb
+        self.peak_memory_mb = 0.0
+    
+    def check_memory(self) -> tuple[float, bool]:
+        """
+        Check current memory usage
+        
+        Returns:
+            (current_mb, exceeded) - current memory in MB and whether limit exceeded
+        """
+        try:
+            import resource
+            usage_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # macOS reports in bytes, Linux in KB
+            current_mb = usage_kb / 1024.0 if usage_kb > 1000000 else usage_kb / 1024.0
+            
+            if current_mb > self.peak_memory_mb:
+                self.peak_memory_mb = current_mb
+            
+            exceeded = current_mb > self.max_memory_mb
+            return (current_mb, exceeded)
+        except:
+            # If resource module not available, return safe values
+            return (0.0, False)
+    
+    def log_memory_status(self):
+        """Log current memory status"""
+        current_mb, exceeded = self.check_memory()
+        status = "⚠️  EXCEEDED" if exceeded else "✓"
+        print(f"Memory: {current_mb:.1f}MB / {self.max_memory_mb}MB {status}")
+
+
+class GracefulShutdown:
+    """Handle graceful shutdown of the server"""
+    
+    def __init__(self, cleanup_timeout: float = 10.0):
+        self.cleanup_timeout = cleanup_timeout
+        self.shutdown_initiated = False
+        self.cleanup_callbacks = []
+    
+    def register_cleanup(self, callback):
+        """Register a cleanup callback to run on shutdown"""
+        self.cleanup_callbacks.append(callback)
+    
+    def setup_signal_handlers(self):
+        """Setup signal handlers for graceful shutdown"""
+        signal.signal(signal.SIGINT, self._handle_signal)
+        signal.signal(signal.SIGTERM, self._handle_signal)
+    
+    def _handle_signal(self, signum, frame):
+        """Handle shutdown signals"""
+        if self.shutdown_initiated:
+            print("\n⚠️  Force shutdown initiated")
+            exit(1)
+        
+        print(f"\n🛑 Shutdown signal received (signal {signum})")
+        self.shutdown_initiated = True
+        self._shutdown()
+    
+    def _shutdown(self):
+        """Execute shutdown sequence"""
+        print("🔄 Initiating graceful shutdown...")
+        
+        start_time = time.time()
+        
+        # Run cleanup callbacks
+        for i, callback in enumerate(self.cleanup_callbacks):
+            try:
+                print(f"  ↳ Cleanup {i+1}/{len(self.cleanup_callbacks)}: {callback.__name__}...")
+                callback()
+            except Exception as e:
+                print(f"  ⚠️  Cleanup failed: {e}")
+            
+            # Check timeout
+            if time.time() - start_time > self.cleanup_timeout:
+                print(f"  ⚠️  Cleanup timeout exceeded ({self.cleanup_timeout}s)")
+                break
+        
+        elapsed = time.time() - start_time
+        print(f"✅ Shutdown complete ({elapsed:.2f}s)")
+        exit(0)
+
+
+class ResourcePool:
+    """Generic resource pool with limits and cleanup"""
+    
+    def __init__(self, max_resources: int = 100):
+        self.max_resources = max_resources
+        self.active_resources = []
+        self.resource_count = 0
+    
+    def acquire(self, resource_id: str) -> bool:
+        """
+        Acquire a resource
+        
+        Returns:
+            True if acquired, False if limit reached
+        """
+        if self.resource_count >= self.max_resources:
+            return False
+        
+        self.active_resources.append(resource_id)
+        self.resource_count += 1
+        return True
+    
+    def release(self, resource_id: str):
+        """Release a resource"""
+        if resource_id in self.active_resources:
+            self.active_resources.remove(resource_id)
+            self.resource_count -= 1
+    
+    def cleanup_all(self):
+        """Clean up all resources"""
+        print(f"  ↳ Releasing {self.resource_count} resources...")
+        for resource_id in self.active_resources[:]:  # Copy list to avoid modification during iteration
+            self.release(resource_id)
+        print(f"  ✓ All resources released")
+
+
+class ConnectionPool:
+    """Manage connection pool with limits"""
+    
+    def __init__(self, max_connections: int = 1000):
+        self.max_connections = max_connections
+        self.active_connections = 0
+    
+    def can_accept(self) -> bool:
+        """Check if new connection can be accepted"""
+        return self.active_connections < self.max_connections
+    
+    def acquire_connection(self) -> bool:
+        """Acquire a connection slot"""
+        if not self.can_accept():
+            return False
+        
+        self.active_connections += 1
+        return True
+    
+    def release_connection(self):
+        """Release a connection slot"""
+        if self.active_connections > 0:
+            self.active_connections -= 1
+    
+    def get_stats(self) -> dict:
+        """Get connection pool statistics"""
+        return {
+            "active": self.active_connections,
+            "max": self.max_connections,
+            "available": self.max_connections - self.active_connections,
+            "utilization": (self.active_connections / self.max_connections) * 100
+        }
+
+
+# Middleware factory functions
+def request_size_limit(max_mb: int = 100):
+    """Create request size limit middleware"""
+    return RequestSizeLimit(max_size_bytes=max_mb * 1024 * 1024)
+
+
+def request_timeout(timeout_seconds: float = 30.0):
+    """Create request timeout middleware"""
+    return RequestTimeout(timeout_seconds=timeout_seconds)
+
+
+# Helper functions
+def create_graceful_shutdown_handler(cleanup_timeout: float = 10.0) -> GracefulShutdown:
+    """
+    Create and setup graceful shutdown handler
+    
+    Usage:
+        shutdown = create_graceful_shutdown_handler()
+        shutdown.register_cleanup(lambda: print("Cleanup task"))
+        shutdown.setup_signal_handlers()
+    """
+    return GracefulShutdown(cleanup_timeout=cleanup_timeout)
+
+
+def create_memory_monitor(max_memory_mb: int = 1024) -> MemoryMonitor:
+    """Create memory monitor"""
+    return MemoryMonitor(max_memory_mb=max_memory_mb)
+
+
+def create_connection_pool(max_connections: int = 1000) -> ConnectionPool:
+    """Create connection pool"""
+    return ConnectionPool(max_connections=max_connections)

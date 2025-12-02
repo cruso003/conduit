@@ -1,0 +1,149 @@
+name: 🚀 Performance Issue
+description: Report a performance problem or regression
+title: "[Performance]: "
+labels: ["performance", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Performance is core to Conduit's mission. Help us identify and fix performance issues!
+
+  - type: textarea
+    id: performance-issue
+    attributes:
+      label: Performance Issue Description
+      description: Describe the performance problem you're experiencing
+      placeholder: |
+        - Slow response times
+        - High memory usage  
+        - CPU bottlenecks
+        - Unexpected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-performance
+    attributes:
+      label: Expected Performance
+      description: What performance characteristics did you expect?
+      placeholder: |
+        Based on benchmarks/documentation, I expected:
+        - Response time: <10ms
+        - Throughput: >5000 req/s
+        - Memory usage: <50MB
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-performance
+    attributes:
+      label: Actual Performance
+      description: What performance are you actually seeing?
+      placeholder: |
+        What I'm seeing:
+        - Response time: 150ms
+        - Throughput: 500 req/s  
+        - Memory usage: 300MB
+    validations:
+      required: true
+
+  - type: textarea
+    id: benchmark-details
+    attributes:
+      label: Benchmark Details
+      description: How did you measure the performance?
+      placeholder: |
+        - Tool used (wrk, ab, curl, etc.)
+        - Test duration
+        - Concurrent connections
+        - Request details
+        - Hardware specs
+    validations:
+      required: true
+
+  - type: textarea
+    id: code-sample
+    attributes:
+      label: Code Sample
+      description: Minimal code sample that demonstrates the performance issue
+      render: python
+      placeholder: |
+        from conduit import Conduit
+
+        app = Conduit()
+
+        @app.get("/slow")
+        def slow_endpoint(req):
+            # Code that exhibits performance issue
+            return {"result": "data"}
+
+  - type: dropdown
+    id: performance-category
+    attributes:
+      label: Performance Category
+      description: What type of performance issue is this?
+      options:
+        - Latency/Response Time
+        - Throughput/RPS
+        - Memory Usage
+        - CPU Usage
+        - Cold Start Time
+        - Route Matching
+        - JSON Parsing
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: conduit-version
+    attributes:
+      label: Conduit Version
+      description: What version of Conduit?
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: codon-version
+    attributes:
+      label: Codon Version
+      description: What version of Codon?
+      placeholder: "0.16.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: system-specs
+    attributes:
+      label: System Specifications
+      description: Hardware and system details
+      placeholder: |
+        - CPU: Intel i7-9750H / Apple M1 Pro / etc.
+        - RAM: 16GB
+        - Storage: SSD/HDD
+        - OS: Ubuntu 22.04 / macOS 13.0 / etc.
+        - Network: localhost / cloud / etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other details about the performance issue
+      placeholder: |
+        - Profiling data
+        - Comparison with other frameworks
+        - Specific workload characteristics
+        - Error logs
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true

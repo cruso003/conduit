@@ -1,0 +1,399 @@
+"""
+ML Error Handling & Resilience
+
+Provides circuit breakers, retry logic, and graceful degradation
+for ML model inference.
+"""
+
+import time
+from python import threading
+
+
+class CircuitState:
+    """Circuit breaker states"""
+    CLOSED = 0   # Normal operation
+    OPEN = 1     # Circuit tripped, reject requests
+    HALF_OPEN = 2  # Testing if service recovered
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker for ML model inference
+    
+    Prevents cascading failures by stopping requests to failing models
+    and allowing them time to recover.
+    """
+    
+    def __init__(self, 
+                 failure_threshold: int = 5,
+                 success_threshold: int = 2,
+                 timeout: float = 60.0):
+        """
+        Initialize circuit breaker
+        
+        Args:
+            failure_threshold: Number of failures before opening circuit
+            success_threshold: Number of successes to close circuit
+            timeout: Time in seconds before trying half-open
+        """
+        self.failure_threshold = failure_threshold
+        self.success_threshold = success_threshold
+        self.timeout = timeout
+        
+        self.state = CircuitState.CLOSED
+        self.failure_count = 0
+        self.success_count = 0
+        self.last_failure_time = 0.0
+        self.lock = threading.Lock()
+    
+    def call(self, func, *args, **kwargs):
+        """
+        Execute function with circuit breaker protection
+        
+        Args:
+            func: Function to call
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+            
+        Returns:
+            Result of function call
+            
+        Raises:
+            Exception: If circuit is open or function fails
+        """
+        with self.lock:
+            # Check if circuit should move to half-open
+            if self.state == CircuitState.OPEN:
+                if time.time() - self.last_failure_time >= self.timeout:
+                    self.state = CircuitState.HALF_OPEN
+                    self.success_count = 0
+                else:
+                    raise Exception("Circuit breaker is OPEN - service unavailable")
+            
+            # Reject if open
+            if self.state == CircuitState.OPEN:
+                raise Exception("Circuit breaker is OPEN - service unavailable")
+        
+        # Try to call function
+        try:
+            result = func(*args, **kwargs)
+            
+            with self.lock:
+                # Record success
+                if self.state == CircuitState.HALF_OPEN:
+                    self.success_count += 1
+                    if self.success_count >= self.success_threshold:
+                        self.state = CircuitState.CLOSED
+                        self.failure_count = 0
+                        print("[CircuitBreaker] Circuit CLOSED - service recovered")
+                
+                elif self.state == CircuitState.CLOSED:
+                    self.failure_count = 0  # Reset on success
+            
+            return result
+            
+        except Exception as e:
+            with self.lock:
+                # Record failure
+                self.failure_count += 1
+                self.last_failure_time = time.time()
+                
+                if self.failure_count >= self.failure_threshold:
+                    self.state = CircuitState.OPEN
+                    print(f"[CircuitBreaker] Circuit OPEN - {self.failure_count} failures")
+                
+                elif self.state == CircuitState.HALF_OPEN:
+                    self.state = CircuitState.OPEN
+                    print("[CircuitBreaker] Circuit OPEN - half-open test failed")
+            
+            raise e
+    
+    def reset(self):
+        """Manually reset circuit breaker"""
+        with self.lock:
+            self.state = CircuitState.CLOSED
+            self.failure_count = 0
+            self.success_count = 0
+            print("[CircuitBreaker] Circuit manually RESET")
+    
+    def get_state(self) -> str:
+        """Get current state as string"""
+        if self.state == CircuitState.CLOSED:
+            return "CLOSED"
+        elif self.state == CircuitState.OPEN:
+            return "OPEN"
+        else:
+            return "HALF_OPEN"
+
+
+class RetryPolicy:
+    """
+    Retry policy for transient failures
+    """
+    
+    def __init__(self,
+                 max_retries: int = 3,
+                 initial_delay: float = 0.1,
+                 max_delay: float = 5.0,
+                 exponential_backoff: bool = True):
+        """
+        Initialize retry policy
+        
+        Args:
+            max_retries: Maximum number of retry attempts
+            initial_delay: Initial delay between retries (seconds)
+            max_delay: Maximum delay between retries (seconds)
+            exponential_backoff: Use exponential backoff
+        """
+        self.max_retries = max_retries
+        self.initial_delay = initial_delay
+        self.max_delay = max_delay
+        self.exponential_backoff = exponential_backoff
+    
+    def execute(self, func, *args, **kwargs):
+        """
+        Execute function with retry logic
+        
+        Args:
+            func: Function to execute
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+            
+        Returns:
+            Result of function call
+            
+        Raises:
+            Exception: If all retries fail
+        """
+        last_exception = None
+        delay = self.initial_delay
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+                
+            except Exception as e:
+                last_exception = e
+                
+                if attempt < self.max_retries:
+                    print(f"[Retry] Attempt {attempt + 1} failed, retrying in {delay:.2f}s...")
+                    time.sleep(delay)
+                    
+                    if self.exponential_backoff:
+                        delay = min(delay * 2, self.max_delay)
+                    
+                else:
+                    print(f"[Retry] All {self.max_retries} retries failed")
+        
+        raise last_exception
+
+
+class FallbackStrategy:
+    """
+    Fallback strategy for graceful degradation
+    """
+    
+    def __init__(self, fallback_func=None, default_value=None):
+        """
+        Initialize fallback strategy
+        
+        Args:
+            fallback_func: Function to call on failure
+            default_value: Default value to return on failure
+        """
+        self.fallback_func = fallback_func
+        self.default_value = default_value
+    
+    def execute(self, func, *args, **kwargs):
+        """
+        Execute with fallback on failure
+        
+        Args:
+            func: Primary function to execute
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+            
+        Returns:
+            Result of primary function or fallback
+        """
+        try:
+            return func(*args, **kwargs)
+            
+        except Exception as e:
+            print(f"[Fallback] Primary function failed: {str(e)}")
+            
+            if self.fallback_func:
+                print("[Fallback] Executing fallback function")
+                return self.fallback_func(*args, **kwargs)
+            
+            elif self.default_value is not None:
+                print(f"[Fallback] Returning default value")
+                return self.default_value
+            
+            else:
+                print("[Fallback] No fallback available, re-raising exception")
+                raise e
+
+
+class ResilientMLModel:
+    """
+    Wrapper for ML models with resilience features
+    """
+    
+    def __init__(self,
+                 model,
+                 use_circuit_breaker: bool = True,
+                 use_retry: bool = True,
+                 fallback_value=None):
+        """
+        Initialize resilient model wrapper
+        
+        Args:
+            model: ML model to wrap
+            use_circuit_breaker: Enable circuit breaker
+            use_retry: Enable retry logic
+            fallback_value: Fallback value on total failure
+        """
+        self.model = model
+        
+        # Circuit breaker
+        self.circuit_breaker = CircuitBreaker() if use_circuit_breaker else None
+        
+        # Retry policy
+        self.retry_policy = RetryPolicy() if use_retry else None
+        
+        # Fallback
+        self.fallback = FallbackStrategy(default_value=fallback_value)
+    
+    def predict(self, X):
+        """
+        Make prediction with resilience
+        
+        Args:
+            X: Input features
+            
+        Returns:
+            Predictions
+        """
+        def _predict():
+            return self.model.predict(X)
+        
+        # Apply circuit breaker
+        if self.circuit_breaker:
+            predict_func = lambda: self.circuit_breaker.call(_predict)
+        else:
+            predict_func = _predict
+        
+        # Apply retry
+        if self.retry_policy:
+            predict_func_with_retry = lambda: self.retry_policy.execute(predict_func)
+        else:
+            predict_func_with_retry = predict_func
+        
+        # Apply fallback
+        return self.fallback.execute(predict_func_with_retry)
+    
+    def get_circuit_state(self) -> str:
+        """Get circuit breaker state"""
+        if self.circuit_breaker:
+            return self.circuit_breaker.get_state()
+        return "N/A"
+    
+    def reset_circuit(self):
+        """Reset circuit breaker"""
+        if self.circuit_breaker:
+            self.circuit_breaker.reset()
+
+
+class TimeoutGuard:
+    """
+    Timeout guard for inference
+    """
+    
+    def __init__(self, timeout_seconds: float = 30.0):
+        """
+        Initialize timeout guard
+        
+        Args:
+            timeout_seconds: Timeout in seconds
+        """
+        self.timeout_seconds = timeout_seconds
+    
+    def execute(self, func, *args, **kwargs):
+        """
+        Execute function with timeout
+        
+        Args:
+            func: Function to execute
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+            
+        Returns:
+            Result of function call
+            
+        Raises:
+            TimeoutError: If execution exceeds timeout
+        """
+        start_time = time.time()
+        
+        # Execute function
+        result = func(*args, **kwargs)
+        
+        # Check if timed out
+        elapsed = time.time() - start_time
+        if elapsed > self.timeout_seconds:
+            raise TimeoutError(f"Operation timed out after {elapsed:.2f}s")
+        
+        return result
+
+
+# Convenience functions
+def with_circuit_breaker(func, failure_threshold: int = 5):
+    """
+    Decorator to add circuit breaker to function
+    
+    Usage:
+        @with_circuit_breaker
+        def predict(X):
+            return model.predict(X)
+    """
+    breaker = CircuitBreaker(failure_threshold=failure_threshold)
+    
+    def wrapper(*args, **kwargs):
+        return breaker.call(func, *args, **kwargs)
+    
+    return wrapper
+
+
+def with_retry(func, max_retries: int = 3):
+    """
+    Decorator to add retry logic to function
+    
+    Usage:
+        @with_retry
+        def predict(X):
+            return model.predict(X)
+    """
+    policy = RetryPolicy(max_retries=max_retries)
+    
+    def wrapper(*args, **kwargs):
+        return policy.execute(func, *args, **kwargs)
+    
+    return wrapper
+
+
+def with_timeout(func, timeout_seconds: float = 30.0):
+    """
+    Decorator to add timeout to function
+    
+    Usage:
+        @with_timeout(timeout_seconds=10.0)
+        def predict(X):
+            return model.predict(X)
+    """
+    guard = TimeoutGuard(timeout_seconds=timeout_seconds)
+    
+    def wrapper(*args, **kwargs):
+        return guard.execute(func, *args, **kwargs)
+    
+    return wrapper

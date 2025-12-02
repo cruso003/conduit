@@ -1,0 +1,294 @@
+"""
+Production-Ready Conduit Application
+
+Demonstrates all Week 19 features:
+- Error handling
+- ML resilience (circuit breakers, retry)
+- Monitoring & metrics
+- Security (rate limiting, auth, CORS)
+- Input validation
+- Health checks
+"""
+
+from conduit import Conduit
+from conduit.framework.errors import error_handler, not_found_handler, ValidationError, InferenceError
+from conduit.framework.monitoring import logging_middleware, create_metrics_endpoint, create_health_endpoint, get_health_check, MLMetrics
+from conduit.framework.security import rate_limit, require_auth, enable_cors, security_headers, validate_ml_input
+from conduit.ml.resilience import ResilientMLModel, CircuitBreaker
+from conduit.ml.loader import ModelLoader
+import time
+
+# Create app
+app = Conduit()
+
+# ============================================================================
+# MIDDLEWARE STACK (order matters!)
+# ============================================================================
+
+# 1. Security headers (first)
+app.use(security_headers())
+
+# 2. CORS configuration
+app.use(enable_cors(allowed_origins=["*"]))  # Adjust for production
+
+# 3. Request logging
+app.use(logging_middleware(log_requests=True, log_responses=True))
+
+# 4. Rate limiting (100 requests per minute per IP)
+app.use(rate_limit(max_requests=100, window_seconds=60))
+
+# 5. Authentication (commented out - add your API keys)
+# app.use(require_auth(api_keys={"your-secret-key"}))
+
+# 6. Error handler (catches all errors)
+app.use(error_handler(log_errors=True))
+
+# ============================================================================
+# MODELS & RESILIENCE
+# ============================================================================
+
+# Load models with resilience features
+model_loader = ModelLoader()
+ml_metrics = MLMetrics()
+
+# Example: Load a model with circuit breaker and retry
+try:
+    base_model = model_loader.load_sklearn_model("models/classifier.pkl")
+    
+    # Wrap with resilience features
+    resilient_model = ResilientMLModel(
+        model=base_model,
+        use_circuit_breaker=True,
+        use_retry=True,
+        fallback_value=None  # Or provide default predictions
+    )
+    
+    print("[INFO] Model loaded with resilience features")
+except Exception as e:
+    print(f"[WARN] Model loading failed: {e}")
+    resilient_model = None
+
+# ============================================================================
+# HEALTH CHECKS
+# ============================================================================
+
+health = get_health_check()
+
+# Register health checks
+def check_model_loaded():
+    """Check if model is loaded"""
+    return resilient_model is not None
+
+def check_model_circuit():
+    """Check if model circuit is healthy"""
+    if resilient_model:
+        state = resilient_model.get_circuit_state()
+        return state == "CLOSED"
+    return False
+
+health.register("model_loaded", check_model_loaded)
+health.register("model_circuit", check_model_circuit)
+
+# ============================================================================
+# ROUTES
+# ============================================================================
+
+@app.get("/")
+def home(req, res):
+    """API home"""
+    res.json({
+        "name": "Production Conduit API",
+        "version": "1.0.0",
+        "status": "running",
+        "features": [
+            "Error handling",
+            "Circuit breakers",
+            "Rate limiting",
+            "Request logging",
+            "Health checks",
+            "Metrics collection"
+        ]
+    })
+
+
+@app.get("/health")
+def health_check(req, res):
+    """Health check endpoint"""
+    create_health_endpoint()(req, res)
+
+
+@app.get("/metrics")
+def metrics_endpoint(req, res):
+    """Metrics endpoint"""
+    create_metrics_endpoint()(req, res)
+
+
+@app.post("/predict")
+def predict(req, res):
+    """
+    ML prediction endpoint with full error handling
+    """
+    # Validate model is loaded
+    if not resilient_model:
+        raise InferenceError("Model not loaded", "No model available for inference")
+    
+    # Get request data
+    try:
+        data = req.json()
+    except Exception as e:
+        raise ValidationError("request_body", "Invalid JSON in request body")
+    
+    # Validate input
+    is_valid, error_msg = validate_ml_input(data, expected_shape=(10,))
+    if not is_valid:
+        raise ValidationError("features", error_msg)
+    
+    # Extract features
+    features = data["features"]
+    
+    # Make prediction with resilience
+    start_time = time.time()
+    
+    try:
+        # Resilient prediction (with circuit breaker, retry, fallback)
+        prediction = resilient_model.predict([features])
+        
+        # Record success metrics
+        duration_ms = (time.time() - start_time) * 1000
+        ml_metrics.record_inference("classifier", duration_ms, True)
+        
+        # Return prediction
+        res.json({
+            "prediction": float(prediction[0]),
+            "model": "classifier",
+            "latency_ms": round(duration_ms, 2),
+            "circuit_state": resilient_model.get_circuit_state()
+        })
+        
+    except Exception as e:
+        # Record failure metrics
+        duration_ms = (time.time() - start_time) * 1000
+        ml_metrics.record_inference("classifier", duration_ms, False)
+        
+        # Re-raise as InferenceError
+        raise InferenceError(str(e), f"Circuit state: {resilient_model.get_circuit_state()}")
+
+
+@app.post("/predict/batch")
+def predict_batch(req, res):
+    """
+    Batch prediction endpoint
+    """
+    if not resilient_model:
+        raise InferenceError("Model not loaded")
+    
+    # Get request data
+    try:
+        data = req.json()
+    except:
+        raise ValidationError("request_body", "Invalid JSON")
+    
+    # Validate batch input
+    if "batch" not in data or not isinstance(data["batch"], list):
+        raise ValidationError("batch", "Must provide 'batch' as array of features")
+    
+    batch = data["batch"]
+    
+    if len(batch) == 0:
+        raise ValidationError("batch", "Batch cannot be empty")
+    
+    if len(batch) > 100:
+        raise ValidationError("batch", "Batch size cannot exceed 100")
+    
+    # Make predictions
+    start_time = time.time()
+    
+    try:
+        predictions = resilient_model.predict(batch)
+        duration_ms = (time.time() - start_time) * 1000
+        
+        # Record metrics
+        ml_metrics.record_batch_inference("classifier", len(batch), duration_ms)
+        
+        res.json({
+            "predictions": [float(p) for p in predictions],
+            "count": len(predictions),
+            "latency_ms": round(duration_ms, 2),
+            "throughput": round(len(predictions) / (duration_ms / 1000), 2)
+        })
+        
+    except Exception as e:
+        raise InferenceError(str(e))
+
+
+@app.post("/circuit/reset")
+def reset_circuit(req, res):
+    """
+    Manually reset circuit breaker (admin endpoint)
+    """
+    if resilient_model:
+        resilient_model.reset_circuit()
+        res.json({
+            "message": "Circuit breaker reset",
+            "state": resilient_model.get_circuit_state()
+        })
+    else:
+        raise InferenceError("No model loaded")
+
+
+@app.get("/circuit/status")
+def circuit_status(req, res):
+    """
+    Get circuit breaker status
+    """
+    if resilient_model:
+        res.json({
+            "state": resilient_model.get_circuit_state(),
+            "model": "classifier"
+        })
+    else:
+        res.json({
+            "state": "N/A",
+            "model": None
+        })
+
+
+# ============================================================================
+# ERROR HANDLERS (404 handler must be last)
+# ============================================================================
+
+# 404 handler (no routes matched)
+app.use(not_found_handler())
+
+# ============================================================================
+# SERVER
+# ============================================================================
+
+if __name__ == "__main__":
+    print("="*60)
+    print("Production Conduit Server")
+    print("="*60)
+    print()
+    print("Features enabled:")
+    print("  ✓ Error handling & validation")
+    print("  ✓ Circuit breakers & retry logic")
+    print("  ✓ Request logging & metrics")
+    print("  ✓ Rate limiting (100 req/min)")
+    print("  ✓ CORS enabled")
+    print("  ✓ Security headers")
+    print("  ✓ Health checks")
+    print()
+    print("Endpoints:")
+    print("  GET  /              - API info")
+    print("  GET  /health        - Health check")
+    print("  GET  /metrics       - Metrics")
+    print("  POST /predict       - Single prediction")
+    print("  POST /predict/batch - Batch prediction")
+    print("  GET  /circuit/status - Circuit breaker status")
+    print("  POST /circuit/reset  - Reset circuit breaker")
+    print()
+    print("Starting server on http://localhost:8080...")
+    print("="*60)
+    print()
+    
+    app.run(port=8080)

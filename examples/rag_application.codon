@@ -1,0 +1,420 @@
+"""
+Production RAG Application
+
+Complete RAG (Retrieval-Augmented Generation) application with:
+- Vector database for document storage
+- Embedding generation
+- Semantic search
+- Context-aware responses
+- Production monitoring
+"""
+
+from conduit import Conduit
+from conduit.ml import create_vector_db, create_rag_pipeline, VectorDocument
+from conduit.framework.errors import error_handler, abort
+from conduit.framework.monitoring import logging_middleware, create_health_endpoint, _metrics
+from conduit.framework.security import rate_limit, enable_cors, InputValidator
+
+app = Conduit()
+validator = InputValidator()
+
+# ============================================================================
+# MIDDLEWARE STACK
+# ============================================================================
+
+app.use(enable_cors())
+app.use(logging_middleware())
+app.use(rate_limit(max_requests=100, window_seconds=60))
+app.use(error_handler())
+
+
+# ============================================================================
+# SIMPLE EMBEDDING MODEL (replace with real embeddings in production)
+# ============================================================================
+
+class SimpleEmbedding:
+    """Simple TF-IDF style embedding for demo"""
+    
+    def __init__(self):
+        self.vocab = {}
+        self.idf = {}
+    
+    def embed(self, text: str) -> List[float]:
+        """Generate 384-dim embedding from text"""
+        # Tokenize
+        words = text.lower().split()
+        
+        # Simple bag-of-words with position encoding
+        embedding = [0.0] * 384
+        
+        for i, word in enumerate(words[:50]):  # First 50 words
+            # Hash word to embedding dimensions
+            hash_val = hash(word) % 384
+            position_weight = 1.0 / (i + 1)  # Position encoding
+            embedding[hash_val] += position_weight
+        
+        # Normalize
+        norm = sum(x * x for x in embedding) ** 0.5
+        if norm > 0:
+            embedding = [x / norm for x in embedding]
+        
+        return embedding
+
+
+embedding_model = SimpleEmbedding()
+
+
+# ============================================================================
+# SIMPLE LLM (replace with real LLM in production)
+# ============================================================================
+
+class SimpleLLM:
+    """Simple response generator for demo"""
+    
+    def generate(self, prompt: str, context: str) -> str:
+        """Generate response using context"""
+        # In production, use OpenAI, Anthropic, or local LLM
+        return f"""Based on the provided context:
+
+{context}
+
+Answer to: {prompt}
+
+[This is a demo response. In production, integrate with:
+- OpenAI GPT-4
+- Anthropic Claude
+- Local LLaMA/Mistral models
+- Or other LLMs]"""
+
+
+llm_model = SimpleLLM()
+
+
+# ============================================================================
+# VECTOR DATABASE SETUP
+# ============================================================================
+
+# Create vector DB
+vector_db = create_vector_db(
+    dimension=384,  # Embedding dimension
+    metric="cosine"
+)
+
+# Sample documents (replace with your data)
+SAMPLE_DOCS = [
+    {
+        "id": "doc1",
+        "title": "Introduction to Conduit",
+        "content": "Conduit is a high-performance web framework built with Codon. It provides 10-200x speedup over Python frameworks like Flask and FastAPI."
+    },
+    {
+        "id": "doc2",
+        "title": "ML Inference with Conduit",
+        "content": "Conduit supports native ML inference with built-in ONNX support. Models run 50-200x faster than Python implementations with automatic GPU acceleration."
+    },
+    {
+        "id": "doc3",
+        "title": "MCP Protocol Support",
+        "content": "Conduit implements the Model Context Protocol for AI agent integration. Build MCP servers that are 10-100x faster than Node.js or Python implementations."
+    },
+    {
+        "id": "doc4",
+        "title": "Vector Database",
+        "content": "Conduit includes an in-memory vector database for semantic search and RAG applications. No external dependencies required."
+    },
+    {
+        "id": "doc5",
+        "title": "Production Features",
+        "content": "Conduit provides production-ready features including circuit breakers, retry logic, rate limiting, monitoring, and graceful shutdown."
+    }
+]
+
+# Index documents on startup
+print("\n🔄 Indexing documents...")
+for doc in SAMPLE_DOCS:
+    embedding = embedding_model.embed(doc["content"])
+    vector_db.add_document(
+        doc_id=doc["id"],
+        embedding=embedding,
+        metadata={"title": doc["title"], "content": doc["content"]}
+    )
+    print(f"  ✓ Indexed: {doc['title']}")
+
+print(f"✅ Indexed {len(SAMPLE_DOCS)} documents\n")
+
+
+# ============================================================================
+# RAG PIPELINE
+# ============================================================================
+
+class RAGPipeline:
+    """RAG pipeline: retrieve + generate"""
+    
+    def __init__(self, vector_db, embedding_model, llm):
+        self.vector_db = vector_db
+        self.embedding_model = embedding_model
+        self.llm = llm
+        self.last_sources = []
+    
+    def query(self, question: str, top_k: int = 3) -> str:
+        """Execute RAG query"""
+        # 1. Embed question
+        query_embedding = self.embedding_model.embed(question)
+        
+        # 2. Retrieve relevant documents
+        results = self.vector_db.search(query_embedding, top_k=top_k)
+        
+        # 3. Build context from results
+        context_parts = []
+        self.last_sources = []
+        
+        for i, result in enumerate(results, 1):
+            title = result.metadata.get("title", "Unknown")
+            content = result.metadata.get("content", "")
+            score = result.score
+            
+            context_parts.append(f"[{i}] {title} (relevance: {score:.2f})\n{content}")
+            self.last_sources.append({
+                "title": title,
+                "score": score,
+                "id": result.id
+            })
+        
+        context = "\n\n".join(context_parts)
+        
+        # 4. Generate response
+        response = self.llm.generate(question, context)
+        
+        return response
+    
+    def get_last_sources(self) -> List[dict]:
+        """Get sources from last query"""
+        return self.last_sources
+
+
+rag_pipeline = RAGPipeline(vector_db, embedding_model, llm_model)
+
+
+# ============================================================================
+# HEALTH CHECK
+# ============================================================================
+
+from conduit.framework.monitoring import _health_check
+
+def check_vector_db() -> tuple[bool, str]:
+    count = vector_db.get_document_count()
+    if count == 0:
+        return (False, "No documents indexed")
+    return (True, f"{count} documents indexed")
+
+_health_check.register_check("vector_db", check_vector_db)
+
+
+# ============================================================================
+# ROUTES
+# ============================================================================
+
+@app.get("/")
+def home(req, res):
+    """API information"""
+    res.json({
+        "service": "Conduit RAG Application",
+        "version": "1.0.0",
+        "features": [
+            "Vector database",
+            "Semantic search",
+            "RAG pipeline",
+            "Document indexing"
+        ],
+        "endpoints": {
+            "query": "POST /rag/query",
+            "search": "POST /search",
+            "index": "POST /documents",
+            "list": "GET /documents",
+            "health": "GET /health"
+        },
+        "documents_indexed": vector_db.get_document_count()
+    })
+
+
+@app.get("/health")
+def health(req, res):
+    """Health check"""
+    return create_health_endpoint()(req, res)
+
+
+@app.post("/rag/query")
+def rag_query(req, res):
+    """RAG query: question answering with retrieval"""
+    data = req.json()
+    
+    # Validate input
+    errors = validator.validate_required(data, ["question"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    question = data["question"]
+    top_k = data.get("top_k", 3)
+    
+    # Execute RAG
+    import time
+    start = time.time()
+    
+    answer = rag_pipeline.query(question, top_k=top_k)
+    sources = rag_pipeline.get_last_sources()
+    
+    duration = time.time() - start
+    
+    # Track metrics
+    _metrics.increment_counter("rag.queries", 1)
+    _metrics.observe_histogram("rag.duration", duration)
+    
+    res.json({
+        "question": question,
+        "answer": answer,
+        "sources": sources,
+        "duration_ms": duration * 1000
+    })
+
+
+@app.post("/search")
+def search(req, res):
+    """Semantic search (no LLM)"""
+    data = req.json()
+    
+    errors = validator.validate_required(data, ["query"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    query = data["query"]
+    top_k = data.get("top_k", 5)
+    
+    # Embed and search
+    query_embedding = embedding_model.embed(query)
+    results = vector_db.search(query_embedding, top_k=top_k)
+    
+    # Format results
+    formatted_results = [
+        {
+            "id": r.id,
+            "title": r.metadata.get("title", "Unknown"),
+            "content": r.metadata.get("content", ""),
+            "score": r.score
+        }
+        for r in results
+    ]
+    
+    _metrics.increment_counter("search.queries", 1)
+    
+    res.json({
+        "query": query,
+        "results": formatted_results,
+        "count": len(formatted_results)
+    })
+
+
+@app.post("/documents")
+def add_document(req, res):
+    """Add new document to vector DB"""
+    data = req.json()
+    
+    errors = validator.validate_required(data, ["id", "content"])
+    if errors:
+        abort(400, "Missing required fields", "; ".join(errors))
+    
+    doc_id = data["id"]
+    content = data["content"]
+    title = data.get("title", "Untitled")
+    
+    # Generate embedding
+    embedding = embedding_model.embed(content)
+    
+    # Add to vector DB
+    vector_db.add_document(
+        doc_id=doc_id,
+        embedding=embedding,
+        metadata={"title": title, "content": content}
+    )
+    
+    _metrics.increment_counter("documents.added", 1)
+    
+    res.json({
+        "status": "indexed",
+        "id": doc_id,
+        "title": title,
+        "total_documents": vector_db.get_document_count()
+    })
+
+
+@app.get("/documents")
+def list_documents(req, res):
+    """List all indexed documents"""
+    # Get all documents (in production, add pagination)
+    all_docs = vector_db.get_all_documents()
+    
+    docs = [
+        {
+            "id": doc.id,
+            "title": doc.metadata.get("title", "Unknown"),
+            "preview": doc.metadata.get("content", "")[:100] + "..."
+        }
+        for doc in all_docs
+    ]
+    
+    res.json({
+        "documents": docs,
+        "count": len(docs)
+    })
+
+
+@app.delete("/documents/:doc_id")
+def delete_document(req, res):
+    """Delete document from vector DB"""
+    doc_id = req.params["doc_id"]
+    
+    # Delete from vector DB
+    success = vector_db.delete_document(doc_id)
+    
+    if not success:
+        abort(404, "Document not found", f"No document with ID: {doc_id}")
+    
+    _metrics.increment_counter("documents.deleted", 1)
+    
+    res.json({
+        "status": "deleted",
+        "id": doc_id,
+        "remaining_documents": vector_db.get_document_count()
+    })
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("  CONDUIT RAG APPLICATION")
+    print("="*70)
+    print("\n✅ Features:")
+    print("  • Vector database with semantic search")
+    print("  • RAG pipeline (retrieve + generate)")
+    print("  • Document indexing & management")
+    print("  • Production monitoring & rate limiting")
+    print("\n🌐 Endpoints:")
+    print("  POST /rag/query       - Ask questions (RAG)")
+    print("  POST /search          - Semantic search only")
+    print("  POST /documents       - Index new document")
+    print("  GET  /documents       - List all documents")
+    print("  DELETE /documents/:id - Remove document")
+    print("  GET  /health          - Health check")
+    print("\n📊 Status:")
+    print(f"  • Documents indexed: {vector_db.get_document_count()}")
+    print(f"  • Embedding dimension: 384")
+    print(f"  • Similarity metric: cosine")
+    print("\n💡 Example Query:")
+    print('  curl -X POST http://localhost:8080/rag/query \\')
+    print('    -H "Content-Type: application/json" \\')
+    print('    -d \'{"question": "What is Conduit?", "top_k": 3}\'')
+    print("\n" + "="*70 + "\n")
+    
+    app.run(port=8080)

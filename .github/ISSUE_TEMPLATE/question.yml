@@ -1,0 +1,91 @@
+name: ❓ Question
+description: Ask a question about Conduit
+title: "[Question]: "
+labels: ["question", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about Conduit? We're here to help!
+
+        **Before asking:** Please check if your question has already been answered in:
+        - [Documentation](https://conduit.dev/docs)
+        - [Existing Discussions](https://github.com/cruso003/conduit/discussions)
+        - [FAQ](https://conduit.dev/docs/faq)
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: How do I...? What is the best way to...?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: question-category
+    attributes:
+      label: Question Category
+      description: What area does your question relate to?
+      options:
+        - Getting Started
+        - Installation/Setup
+        - Framework Usage
+        - Performance
+        - MCP Protocol
+        - ML/AI Integration
+        - Deployment
+        - Best Practices
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context for your question
+      placeholder: |
+        - What are you trying to build?
+        - What have you tried so far?
+        - Any specific requirements or constraints?
+
+  - type: textarea
+    id: code-context
+    attributes:
+      label: Code Context (if applicable)
+      description: Share relevant code if it helps explain your question
+      render: python
+      placeholder: |
+        from conduit import Conduit
+
+        # Your code here
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: What environment are you working in?
+      placeholder: "macOS, Codon 0.16.3, Conduit 1.0.0"
+
+  - type: checkboxes
+    id: research
+    attributes:
+      label: Research Done
+      description: Where have you looked for an answer?
+      options:
+        - label: I've checked the documentation
+        - label: I've searched existing issues and discussions
+        - label: I've looked at the examples
+        - label: I've searched online (Stack Overflow, etc.)
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true

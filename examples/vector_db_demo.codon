@@ -1,0 +1,445 @@
+#!/usr/bin/env codon
+# Vector Database & RAG Demo
+# Demonstrates semantic search and retrieval-augmented generation
+
+from conduit.framework.conduit import Conduit
+from conduit.ml.vectors import (
+    VectorDB, RAGPipeline, SimpleTFIDFEmbedding,
+    create_vector_db, create_rag_pipeline
+)
+import numpy as np
+import json
+
+# Create Conduit app
+app = Conduit(ml_enabled=True)
+
+# ========== Create Vector Database ==========
+
+# Create vector database with cosine similarity
+vector_db = app.create_vector_db("knowledge_base", metric="cosine")
+
+# ========== Sample Knowledge Base ==========
+
+knowledge_base = [
+    {
+        "id": "doc1",
+        "text": "Python is a high-level programming language known for its simplicity and readability.",
+        "category": "programming",
+        "tags": ["python", "programming", "language"]
+    },
+    {
+        "id": "doc2",
+        "text": "Machine learning is a subset of artificial intelligence that enables computers to learn from data.",
+        "category": "ai",
+        "tags": ["machine learning", "ai", "data science"]
+    },
+    {
+        "id": "doc3",
+        "text": "Docker is a platform for developing, shipping, and running applications in containers.",
+        "category": "devops",
+        "tags": ["docker", "containers", "devops"]
+    },
+    {
+        "id": "doc4",
+        "text": "Neural networks are computing systems inspired by biological neural networks in animal brains.",
+        "category": "ai",
+        "tags": ["neural networks", "deep learning", "ai"]
+    },
+    {
+        "id": "doc5",
+        "text": "Git is a distributed version control system for tracking changes in source code during software development.",
+        "category": "tools",
+        "tags": ["git", "version control", "programming"]
+    },
+    {
+        "id": "doc6",
+        "text": "REST APIs are architectural style for designing networked applications using HTTP methods.",
+        "category": "web",
+        "tags": ["rest", "api", "web development"]
+    },
+    {
+        "id": "doc7",
+        "text": "Kubernetes is an open-source container orchestration platform for automating deployment and scaling.",
+        "category": "devops",
+        "tags": ["kubernetes", "containers", "orchestration"]
+    },
+    {
+        "id": "doc8",
+        "text": "SQL is a domain-specific language for managing and querying relational databases.",
+        "category": "database",
+        "tags": ["sql", "database", "query language"]
+    },
+]
+
+# ========== Initialize Embeddings ==========
+
+def initialize_database():
+    """Initialize vector database with sample data"""
+    print("📚 Initializing knowledge base...")
+    
+    # Create simple TF-IDF embedder
+    embedder = SimpleTFIDFEmbedding(vocab_size=500)
+    
+    # Fit on all documents
+    all_texts = [doc["text"] for doc in knowledge_base]
+    embedder.fit(all_texts)
+    
+    # Add documents to vector DB
+    for doc in knowledge_base:
+        embedding = embedder.embed(doc["text"])
+        
+        metadata = {
+            "text": doc["text"],
+            "category": doc["category"],
+            "tags": doc["tags"]
+        }
+        
+        vector_db.add(doc["id"], embedding, metadata)
+    
+    print(f"✅ Added {len(knowledge_base)} documents to vector database")
+    print(f"   Dimension: {len(all_texts[0])} → {embedder.vocab_size}")
+    print(f"   Metric: {vector_db.metric}")
+    
+    return embedder
+
+# Initialize on startup
+embedder = initialize_database()
+
+# ========== Create RAG Pipeline ==========
+
+rag_pipeline = app.create_rag_pipeline(vector_db, top_k=3)
+
+# ========== Vector Search Endpoint ==========
+
+@app.route("/api/search", "POST")
+def search_documents(request):
+    """Search documents by text query"""
+    try:
+        data = json.loads(request.body)
+        query_text = data["query"]
+        top_k = data.get("top_k", 5)
+        category_filter = data.get("category")
+        
+        # Generate query embedding
+        query_vector = embedder.embed(query_text)
+        
+        # Optional category filter
+        filter_fn = None
+        if category_filter:
+            filter_fn = lambda meta: meta["category"] == category_filter
+        
+        # Perform search
+        results = vector_db.search(query_vector, top_k, filter_fn)
+        
+        # Format results
+        formatted_results = []
+        for result in results:
+            formatted_results.append({
+                "id": result.document.id,
+                "score": round(result.score, 4),
+                "rank": result.rank,
+                "text": result.document.metadata["text"],
+                "category": result.document.metadata["category"],
+                "tags": result.document.metadata["tags"]
+            })
+        
+        return app.json({
+            "query": query_text,
+            "results": formatted_results,
+            "count": len(formatted_results)
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== RAG Endpoint ==========
+
+@app.route("/api/rag", "POST")
+def rag_query(request):
+    """RAG: Retrieve context and augment query"""
+    try:
+        data = json.loads(request.body)
+        query_text = data["query"]
+        
+        # Generate query embedding
+        query_vector = embedder.embed(query_text)
+        
+        # Retrieve relevant documents
+        results = rag_pipeline.retrieve(query_vector)
+        
+        # Build context
+        context = rag_pipeline.build_context(results, max_length=1000)
+        
+        # Augment query
+        augmented_query = rag_pipeline.augment_query(query_text, context)
+        
+        # Format retrieved documents
+        retrieved_docs = []
+        for result in results:
+            retrieved_docs.append({
+                "id": result.document.id,
+                "score": round(result.score, 4),
+                "text": result.document.metadata["text"]
+            })
+        
+        return app.json({
+            "query": query_text,
+            "context": context,
+            "augmented_query": augmented_query,
+            "retrieved_documents": retrieved_docs,
+            "rag_stats": rag_pipeline.get_stats()
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Semantic Similarity Endpoint ==========
+
+@app.route("/api/similarity", "POST")
+def semantic_similarity(request):
+    """Compare semantic similarity between two texts"""
+    try:
+        data = json.loads(request.body)
+        text1 = data["text1"]
+        text2 = data["text2"]
+        
+        # Generate embeddings
+        vec1 = embedder.embed(text1)
+        vec2 = embedder.embed(text2)
+        
+        # Compute similarity metrics
+        from conduit.ml.vectors import DistanceMetric
+        
+        cosine = DistanceMetric.cosine_similarity(vec1, vec2)
+        euclidean = DistanceMetric.euclidean_distance(vec1, vec2)
+        manhattan = DistanceMetric.manhattan_distance(vec1, vec2)
+        dot = DistanceMetric.dot_product(vec1, vec2)
+        
+        return app.json({
+            "text1": text1,
+            "text2": text2,
+            "similarity": {
+                "cosine": round(cosine, 4),
+                "euclidean": round(euclidean, 4),
+                "manhattan": round(manhattan, 4),
+                "dot_product": round(dot, 4)
+            }
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Add Document Endpoint ==========
+
+@app.route("/api/documents", "POST")
+def add_document(request):
+    """Add a new document to the knowledge base"""
+    try:
+        data = json.loads(request.body)
+        
+        doc_id = data["id"]
+        text = data["text"]
+        category = data.get("category", "general")
+        tags = data.get("tags", [])
+        
+        # Generate embedding
+        embedding = embedder.embed(text)
+        
+        # Add to database
+        metadata = {
+            "text": text,
+            "category": category,
+            "tags": tags
+        }
+        
+        vector_db.add(doc_id, embedding, metadata)
+        
+        return app.json({
+            "message": "Document added successfully",
+            "id": doc_id,
+            "database_size": vector_db.size()
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Get Document Endpoint ==========
+
+@app.route("/api/documents/:id", "GET")
+def get_document(request):
+    """Get a document by ID"""
+    try:
+        # Extract ID from path parameters
+        doc_id = request.path.split('/')[-1]
+        
+        # Get document
+        doc = vector_db.get(doc_id)
+        
+        if doc is None:
+            return app.json({"error": "Document not found"}, status=404)
+        
+        return app.json({
+            "id": doc.id,
+            "metadata": doc.metadata,
+            "indexed_at": doc.indexed_at
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Delete Document Endpoint ==========
+
+@app.route("/api/documents/:id", "DELETE")
+def delete_document(request):
+    """Delete a document by ID"""
+    try:
+        # Extract ID from path parameters
+        doc_id = request.path.split('/')[-1]
+        
+        # Delete document
+        deleted = vector_db.delete(doc_id)
+        
+        if not deleted:
+            return app.json({"error": "Document not found"}, status=404)
+        
+        return app.json({
+            "message": "Document deleted successfully",
+            "id": doc_id,
+            "database_size": vector_db.size()
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Database Statistics ==========
+
+@app.route("/api/stats", "GET")
+def database_stats(request):
+    """Get vector database statistics"""
+    return app.json({
+        "vector_db": vector_db.get_stats(),
+        "rag_pipeline": rag_pipeline.get_stats()
+    })
+
+# ========== Category Filter Example ==========
+
+@app.route("/api/search/category/:category", "POST")
+def search_by_category(request):
+    """Search within a specific category"""
+    try:
+        # Extract category from path
+        category = request.path.split('/')[-1]
+        
+        data = json.loads(request.body)
+        query_text = data["query"]
+        top_k = data.get("top_k", 5)
+        
+        # Generate query embedding
+        query_vector = embedder.embed(query_text)
+        
+        # Filter by category
+        filter_fn = lambda meta: meta["category"] == category
+        
+        # Search
+        results = vector_db.search(query_vector, top_k, filter_fn)
+        
+        # Format results
+        formatted_results = [
+            {
+                "id": r.document.id,
+                "score": round(r.score, 4),
+                "text": r.document.metadata["text"]
+            }
+            for r in results
+        ]
+        
+        return app.json({
+            "query": query_text,
+            "category": category,
+            "results": formatted_results,
+            "count": len(formatted_results)
+        })
+        
+    except Exception as e:
+        return app.json({"error": str(e)}, status=500)
+
+# ========== Health Check ==========
+
+@app.route("/health", "GET")
+def health(request):
+    """Health check endpoint"""
+    return app.json({
+        "status": "healthy",
+        "features": {
+            "vector_search": True,
+            "rag_pipeline": True,
+            "semantic_similarity": True,
+            "document_management": True
+        },
+        "database": {
+            "name": vector_db.name,
+            "documents": vector_db.size(),
+            "metric": vector_db.metric
+        }
+    })
+
+# ========== Main ==========
+
+if __name__ == "__main__":
+    print("")
+    print("=" * 70)
+    print("Conduit Vector Database & RAG Demo")
+    print("=" * 70)
+    print("")
+    print("Features:")
+    print("  ✅ Vector Database (in-memory)")
+    print("  ✅ Semantic Search (TF-IDF embeddings)")
+    print("  ✅ RAG Pipeline (Retrieval-Augmented Generation)")
+    print("  ✅ Multiple Distance Metrics (cosine, euclidean, manhattan, dot)")
+    print("  ✅ Document Management (add, get, delete)")
+    print("  ✅ Category Filtering")
+    print("")
+    print(f"Knowledge Base: {len(knowledge_base)} documents indexed")
+    print(f"Categories: {', '.join(set(doc['category'] for doc in knowledge_base))}")
+    print("")
+    print("Available Endpoints:")
+    print("")
+    print("  Search:")
+    print("    POST /api/search                    - Semantic search")
+    print("    POST /api/search/category/:category - Search by category")
+    print("    POST /api/similarity                - Compare text similarity")
+    print("")
+    print("  RAG:")
+    print("    POST /api/rag                       - RAG query with context")
+    print("")
+    print("  Documents:")
+    print("    POST   /api/documents               - Add document")
+    print("    GET    /api/documents/:id           - Get document")
+    print("    DELETE /api/documents/:id           - Delete document")
+    print("")
+    print("  Stats:")
+    print("    GET  /api/stats                     - Database statistics")
+    print("    GET  /health                        - Health check")
+    print("")
+    print("Example Requests:")
+    print("")
+    print("  # Search:")
+    print('  curl -X POST http://localhost:8080/api/search \\')
+    print('    -H "Content-Type: application/json" \\')
+    print('    -d \'{"query": "artificial intelligence", "top_k": 3}\'')
+    print("")
+    print("  # RAG Query:")
+    print('  curl -X POST http://localhost:8080/api/rag \\')
+    print('    -H "Content-Type: application/json" \\')
+    print('    -d \'{"query": "How does machine learning work?"}\'')
+    print("")
+    print("  # Similarity:")
+    print('  curl -X POST http://localhost:8080/api/similarity \\')
+    print('    -H "Content-Type: application/json" \\')
+    print('    -d \'{"text1": "Python programming", "text2": "Coding in Python"}\'')
+    print("")
+    print("Starting server...")
+    print("")
+    
+    # Run server
+    app.run(host="127.0.0.1", port=8080)

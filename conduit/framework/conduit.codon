@@ -21,6 +21,21 @@ from conduit.http.router import Router
 from conduit.http.middleware import MiddlewareChain, LoggerMiddleware, CORSMiddleware, TimingMiddleware
 from conduit.http.docs import APIDocGenerator, RouteDoc
 from conduit.mcp.simple_http_client import SimpleAPITools
+from conduit.ml.loader import BaseModel, load_model, ModelError
+from conduit.ml.inference import InferenceEngine, create_inference_engine, InferenceError
+from conduit.ml.streaming import StreamingInferenceEngine, StreamChunk, SSEFormatter, create_streaming_engine
+from conduit.ml.pipeline import (
+    MLPipeline, PipelineStage, EnsemblePredictor, 
+    create_pipeline, create_ensemble, PipelineError
+)
+from conduit.ml.vectors import (
+    VectorDB, VectorDocument, SearchResult, RAGPipeline,
+    create_vector_db, create_rag_pipeline, VectorDBError
+)
+from conduit.ml.onnx_support import (
+    ONNXModel, DeviceManager, load_onnx_model,
+    is_onnx_available, has_gpu_support, ONNXError
+)
 
 # Helper function for path parameter matching (called from plugin-generated code)
 def match_path_pattern(path: str, pattern: str, params: Dict[str, str]) -> bool:
@@ -126,6 +141,35 @@ class MCPTool:
         self.description = description  
         self.handler_func = handler_func
         self.input_schema = None
+
+class MLEndpoint:
+    """Information about a registered ML inference endpoint"""
+    pattern: str
+    model: BaseModel
+    engine: InferenceEngine
+    preprocessor: Optional[Callable]
+    postprocessor: Optional[Callable]
+    
+    def __init__(self, pattern: str, model: BaseModel):
+        self.pattern = pattern
+        self.model = model
+        self.engine = InferenceEngine(model)
+        self.preprocessor = None
+        self.postprocessor = None
+    
+    def set_preprocessor(self, func: Callable):
+        """Set preprocessing function"""
+        self.preprocessor = func
+        self.engine.set_preprocessor(func)
+    
+    def set_postprocessor(self, func: Callable): 
+        """Set postprocessing function"""
+        self.postprocessor = func
+        self.engine.set_postprocessor(func)
+    
+    def predict(self, input_data: Any) -> Any:
+        """Run prediction through the inference engine"""
+        return self.engine.predict(input_data)
 
 class MCPServer:
     """Integrated MCP server for the framework"""
@@ -266,6 +310,10 @@ class Conduit:
     api_title: str
     api_version: str
     
+    # ML inference fields
+    ml_endpoints: List[MLEndpoint]
+    ml_enabled: bool
+    
     def __init__(self, host: str = "0.0.0.0", port: int = 8000):
         """Initialize Conduit application"""
         self.host = host
@@ -281,6 +329,9 @@ class Conduit:
         # MCP integration
         self.mcp_server = None
         self.mcp_enabled = False
+        # ML inference integration
+        self.ml_endpoints = []
+        self.ml_enabled = False
     
     def add_route_metadata(self, pattern: str, method: str, name: str = ""):
         """Register route metadata (called by decorators)"""
@@ -577,6 +628,62 @@ class Conduit:
             response.set_header("Content-Length", str(len(mcp_response)))
             return response
         
+        # Check for ML inference endpoints
+        if self.ml_enabled:
+            for ml_endpoint in self.ml_endpoints:
+                if request.path == ml_endpoint.pattern and request.method == "POST":
+                    try:
+                        # Parse JSON input
+                        if hasattr(request, 'body') and request.body:
+                            input_data = request.parse_json()
+                        else:
+                            error_response = HTTPResponse(400)
+                            error_response.body = '{"error": "No input data provided", "status": "error"}'
+                            error_response.set_header("Content-Type", "application/json")
+                            return error_response
+                        
+                        # Run prediction
+                        result = ml_endpoint.predict(input_data)
+                        
+                        # Create success response
+                        response_data = {
+                            "prediction": result,
+                            "model": ml_endpoint.model.get_info()["name"],
+                            "status": "success"
+                        }
+                        
+                        response_body = self.to_json_string(response_data)
+                        
+                        response = HTTPResponse(200)
+                        response.body = response_body
+                        response.set_header("Content-Type", "application/json")
+                        response.set_header("Content-Length", str(len(response_body)))
+                        return response
+                        
+                    except ModelError as e:
+                        error_response = HTTPResponse(500)
+                        error_data = {"error": f"Model error: {e.message}", "status": "error"}
+                        error_body = self.to_json_string(error_data)
+                        error_response.body = error_body
+                        error_response.set_header("Content-Type", "application/json")
+                        return error_response
+                        
+                    except InferenceError as e:
+                        error_response = HTTPResponse(500)
+                        error_data = {"error": f"Inference error: {e.message}", "status": "error"}
+                        error_body = self.to_json_string(error_data)
+                        error_response.body = error_body
+                        error_response.set_header("Content-Type", "application/json")
+                        return error_response
+                        
+                    except Exception as e:
+                        error_response = HTTPResponse(500)
+                        error_data = {"error": f"Unexpected error: {str(e)}", "status": "error"}
+                        error_body = self.to_json_string(error_data)
+                        error_response.body = error_body
+                        error_response.set_header("Content-Type", "application/json")
+                        return error_response
+        
         # Check for auto-docs routes
         if self.docs_enabled:
             if request.path == "/docs":
@@ -740,6 +847,661 @@ class Conduit:
             "token_savings": self.mcp_server.total_token_savings,
             "tools": len(self.mcp_server.tools)
         }
+
+    # ML Inference Integration
+    def enable_ml(self):
+        """
+        Enable ML inference capabilities
+        
+        This enables the framework to serve machine learning models
+        through dedicated ML endpoints.
+        """
+        self.ml_enabled = True
+        print("ML inference enabled")
+
+    def ml_endpoint(self, pattern: str, model_path: str):
+        """
+        Decorator to register a machine learning inference endpoint
+        
+        Args:
+            pattern: URL pattern for the ML endpoint (e.g., "/predict")
+            model_path: Path to the model file
+            
+        Example:
+            @app.ml_endpoint("/predict", "model.npz")
+            def preprocess(input_data):
+                return np.array(input_data["features"])
+        """
+        def decorator(preprocessor=None):
+            try:
+                # Load the model
+                model = load_model(model_path)
+                
+                # Create ML endpoint
+                ml_endpoint = MLEndpoint(pattern, model)
+                
+                # Set preprocessor if provided
+                if preprocessor is not None:
+                    ml_endpoint.set_preprocessor(preprocessor)
+                
+                # Register the endpoint
+                self.ml_endpoints.append(ml_endpoint)
+                
+                # Register as HTTP POST route for predictions
+                def ml_handler(request):
+                    try:
+                        # Parse JSON input
+                        if hasattr(request, 'body') and request.body:
+                            input_data = request.parse_json()
+                        else:
+                            return {"error": "No input data provided"}
+                        
+                        # Run prediction
+                        result = ml_endpoint.predict(input_data)
+                        
+                        # Return prediction result
+                        return {
+                            "prediction": result,
+                            "model": model.get_info()["name"],
+                            "status": "success"
+                        }
+                        
+                    except ModelError as e:
+                        return {"error": f"Model error: {e.message}", "status": "error"}
+                    except InferenceError as e:
+                        return {"error": f"Inference error: {e.message}", "status": "error"}
+                    except Exception as e:
+                        return {"error": f"Unexpected error: {str(e)}", "status": "error"}
+                
+                # Register the HTTP route
+                self.add_route_metadata(pattern, "POST", f"ml_endpoint_{len(self.ml_endpoints)}")
+                
+                # Enable ML if not already enabled
+                if not self.ml_enabled:
+                    self.enable_ml()
+                
+                print(f"Registered ML endpoint: POST {pattern} -> {model_path}")
+                
+                return preprocessor if preprocessor is not None else ml_handler
+                
+            except Exception as e:
+                print(f"Failed to register ML endpoint {pattern}: {str(e)}")
+                return None
+                
+        return decorator
+
+    def post_ml(self, pattern: str):
+        """
+        Alternative decorator for ML endpoints that expect the model to be provided separately
+        
+        Example:
+            model = load_model("classifier.npz") 
+            
+            @app.post_ml("/classify")
+            def classify_handler(request, prediction):
+                # prediction is the raw model output
+                class_idx = prediction.argmax()
+                confidence = float(prediction.max())
+                return {
+                    "class": CLASSES[class_idx],
+                    "confidence": confidence
+                }
+        """
+        def decorator(handler):
+            # This is a placeholder for now - would need more complex integration
+            # to pass model predictions to the handler
+            print(f"Registered ML post-processing endpoint: POST {pattern}")
+            self.add_route_metadata(pattern, "POST", handler.__name__)
+            return handler
+        return decorator
+
+    def get_ml_stats(self) -> Dict:
+        """
+        Get ML inference statistics
+        
+        Returns:
+            Dictionary with ML endpoint information and inference statistics
+        """
+        if not self.ml_enabled:
+            return {"ml_enabled": False, "endpoints": 0}
+        
+        endpoint_stats = []
+        total_predictions = 0
+        total_errors = 0
+        
+        for endpoint in self.ml_endpoints:
+            stats = endpoint.engine.get_stats()
+            endpoint_stats.append({
+                "pattern": endpoint.pattern,
+                "model": stats["model_info"],
+                "predictions": stats["inference_count"],
+                "errors": stats["error_count"],
+                "avg_time_ms": stats["avg_time_ms"],
+                "predictions_per_sec": stats["predictions_per_sec"]
+            })
+            total_predictions += stats["inference_count"]
+            total_errors += stats["error_count"]
+        
+        return {
+            "ml_enabled": True,
+            "endpoints": len(self.ml_endpoints),
+            "total_predictions": total_predictions,
+            "total_errors": total_errors,
+            "error_rate": total_errors / max(1, total_predictions + total_errors),
+            "endpoint_stats": endpoint_stats
+        }
+
+    def load_model(self, model_path: str, cache: bool = True) -> BaseModel:
+        """
+        Load a machine learning model
+        
+        Args:
+            model_path: Path to model file
+            cache: Whether to use model cache (default: True)
+            
+        Returns:
+            Loaded model instance
+        """
+        return load_model(model_path, force_reload=not cache)
+
+    def create_ml_engine(self, model_path: str) -> InferenceEngine:
+        """
+        Create an inference engine for a model
+        
+        Args:
+            model_path: Path to model file
+            
+        Returns:
+            Configured inference engine
+        """
+        return create_inference_engine(model_path)
+
+    # Streaming ML Inference
+    def ml_stream(self, pattern: str, model_path: str, chunk_size: int = 1):
+        """
+        Decorator for streaming ML inference endpoints
+        
+        Args:
+            pattern: URL pattern for the streaming endpoint (e.g., "/stream/predict")
+            model_path: Path to the model file
+            chunk_size: Number of predictions per chunk
+            
+        Example:
+            @app.ml_stream("/stream/generate", "generator.npz", chunk_size=1)
+            def preprocess_for_streaming(input_data):
+                return np.array(input_data["features"])
+        """
+        def decorator(preprocessor=None):
+            try:
+                # Load the model
+                model = load_model(model_path)
+                
+                # Create streaming engine
+                streaming_engine = create_streaming_engine(model, chunk_size)
+                
+                # Register as SSE endpoint
+                def streaming_handler(request):
+                    try:
+                        # Parse input
+                        if hasattr(request, 'body') and request.body:
+                            input_data = request.parse_json()
+                        else:
+                            return {"error": "No input data provided", "status": "error"}
+                        
+                        # Preprocess if function provided
+                        if preprocessor is not None:
+                            processed_input = preprocessor(input_data)
+                        else:
+                            processed_input = input_data
+                        
+                        # Create SSE response
+                        response = HTTPResponse(200)
+                        
+                        # Set SSE headers
+                        sse_headers = SSEFormatter.create_sse_response_headers()
+                        for header_name, header_value in sse_headers.items():
+                            response.set_header(header_name, header_value)
+                        
+                        # Generate streaming response
+                        chunks = []
+                        for chunk in streaming_engine.stream_predict(processed_input):
+                            sse_message = SSEFormatter.format_chunk(chunk, "prediction")
+                            chunks.append(sse_message)
+                        
+                        # Combine all SSE messages
+                        response.body = ''.join(chunks)
+                        
+                        return response
+                        
+                    except Exception as e:
+                        # Return error as SSE
+                        error_chunk = StreamChunk(
+                            data={"error": str(e)},
+                            complete=True,
+                            metadata={"error": True}
+                        )
+                        error_sse = SSEFormatter.format_chunk(error_chunk, "error")
+                        
+                        response = HTTPResponse(500)
+                        sse_headers = SSEFormatter.create_sse_response_headers()
+                        for header_name, header_value in sse_headers.items():
+                            response.set_header(header_name, header_value)
+                        response.body = error_sse
+                        
+                        return response
+                
+                # Register the HTTP route
+                self.add_route_metadata(pattern, "POST", f"ml_stream_{len(self.ml_endpoints)}")
+                
+                print(f"Registered streaming ML endpoint: POST {pattern} -> {model_path}")
+                
+                return preprocessor if preprocessor is not None else streaming_handler
+                
+            except Exception as e:
+                print(f"Failed to register streaming ML endpoint {pattern}: {str(e)}")
+                return None
+                
+        return decorator
+    
+    def create_streaming_engine(self, model_path: str, chunk_size: int = 1) -> StreamingInferenceEngine:
+        """
+        Create a streaming inference engine
+        
+        Args:
+            model_path: Path to model file
+            chunk_size: Predictions per chunk
+            
+        Returns:
+            Configured StreamingInferenceEngine
+        """
+        model = load_model(model_path)
+        return create_streaming_engine(model, chunk_size)
+
+    def get_streaming_stats(self) -> Dict:
+        """
+        Get streaming inference statistics
+        
+        Returns:
+            Dictionary with streaming statistics across all endpoints
+        """
+        # This would need to track streaming engines globally
+        # For now, return placeholder
+        return {
+            "streaming_enabled": self.ml_enabled,
+            "message": "Streaming statistics tracking to be implemented"
+        }
+    
+    # ========== ML Pipeline Methods ==========
+    
+    def create_pipeline(self, name: str = "pipeline") -> MLPipeline:
+        """
+        Create a new ML pipeline
+        
+        Args:
+            name: Pipeline name
+            
+        Returns:
+            Empty MLPipeline ready for stage additions
+            
+        Example:
+            pipeline = app.create_pipeline("text_analysis")
+            pipeline.add_stage(...)
+        """
+        return MLPipeline(name)
+    
+    def create_pipeline_builder(self, name: str = "pipeline"):
+        """
+        Create a pipeline using fluent builder pattern
+        
+        Args:
+            name: Pipeline name
+            
+        Returns:
+            PipelineBuilder for chaining
+            
+        Example:
+            pipeline = app.create_pipeline_builder("nlp") \\
+                .add_model("models/tokenizer.npy", "tokenize") \\
+                .add_model("models/sentiment.npy", "sentiment") \\
+                .build()
+        """
+        return create_pipeline(name)
+    
+    def create_ensemble(self, model_paths: List[str], strategy: str = "average") -> EnsemblePredictor:
+        """
+        Create an ensemble predictor from multiple models
+        
+        Args:
+            model_paths: List of paths to model files
+            strategy: Aggregation strategy ('average', 'vote', 'max', 'min')
+            
+        Returns:
+            EnsemblePredictor configured with given models
+            
+        Example:
+            ensemble = app.create_ensemble([
+                "models/model1.npy",
+                "models/model2.npy",
+                "models/model3.npy"
+            ], strategy="vote")
+        """
+        return create_ensemble(model_paths, strategy)
+    
+    def ml_pipeline(self, pattern: str, pipeline: MLPipeline, method: str = "POST"):
+        """
+        Decorator for ML pipeline endpoints
+        
+        Args:
+            pattern: URL pattern
+            pipeline: Configured MLPipeline
+            method: HTTP method (default: POST)
+            
+        Returns:
+            Decorator function
+            
+        Example:
+            pipeline = app.create_pipeline("text_processing")
+            pipeline.add_stage(...)
+            
+            @app.ml_pipeline("/api/process", pipeline)
+            def process_text(request):
+                data = parse_json(request.body)
+                return pipeline.execute(data["input"])
+        """
+        def decorator(handler):
+            def pipeline_handler(req: HTTPRequest) -> HTTPResponse:
+                try:
+                    # Execute handler to get input data
+                    input_data = handler(req)
+                    
+                    # Execute pipeline
+                    result = pipeline.execute(input_data)
+                    
+                    # Get pipeline stats
+                    stats = pipeline.get_stats()
+                    
+                    # Return result with metadata
+                    response_data = {
+                        "result": result,
+                        "pipeline": {
+                            "name": pipeline.name,
+                            "stages": stats["num_stages"],
+                            "executions": stats["pipeline_executions"]
+                        }
+                    }
+                    
+                    import json
+                    return HTTPResponse(200, json.dumps(response_data))
+                    
+                except PipelineError as e:
+                    import json
+                    error_response = {
+                        "error": "Pipeline execution failed",
+                        "message": e.message
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+                except Exception as e:
+                    import json
+                    error_response = {
+                        "error": "Internal error",
+                        "message": str(e)
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+            
+            # Register route
+            self.route(pattern, method)(pipeline_handler)
+            return handler
+        
+        return decorator
+    
+    def ml_ensemble(self, pattern: str, ensemble: EnsemblePredictor, method: str = "POST"):
+        """
+        Decorator for ensemble prediction endpoints
+        
+        Args:
+            pattern: URL pattern
+            ensemble: Configured EnsemblePredictor
+            method: HTTP method (default: POST)
+            
+        Returns:
+            Decorator function
+            
+        Example:
+            ensemble = app.create_ensemble([
+                "models/model1.npy",
+                "models/model2.npy"
+            ], strategy="average")
+            
+            @app.ml_ensemble("/api/predict", ensemble)
+            def predict(request):
+                data = parse_json(request.body)
+                return data["features"]
+        """
+        def decorator(handler):
+            def ensemble_handler(req: HTTPRequest) -> HTTPResponse:
+                try:
+                    # Execute handler to get input data
+                    input_data = handler(req)
+                    
+                    # Get ensemble prediction
+                    prediction = ensemble.predict(input_data)
+                    
+                    # Get stats
+                    stats = ensemble.get_stats()
+                    
+                    # Return result with metadata
+                    response_data = {
+                        "prediction": prediction,
+                        "ensemble": {
+                            "num_models": stats["num_models"],
+                            "strategy": stats["strategy"],
+                            "total_predictions": stats["predictions"]
+                        }
+                    }
+                    
+                    import json
+                    return HTTPResponse(200, json.dumps(response_data))
+                    
+                except PipelineError as e:
+                    import json
+                    error_response = {
+                        "error": "Ensemble prediction failed",
+                        "message": e.message
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+                except Exception as e:
+                    import json
+                    error_response = {
+                        "error": "Internal error",
+                        "message": str(e)
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+            
+            # Register route
+            self.route(pattern, method)(ensemble_handler)
+            return handler
+        
+        return decorator
+    
+    # ========== Vector Database Methods ==========
+    
+    def create_vector_db(self, name: str = "vectordb", metric: str = "cosine") -> VectorDB:
+        """
+        Create a new in-memory vector database
+        
+        Args:
+            name: Database name
+            metric: Distance metric ('cosine', 'euclidean', 'manhattan', 'dot')
+            
+        Returns:
+            VectorDB instance
+            
+        Example:
+            db = app.create_vector_db("knowledge_base", metric="cosine")
+            db.add("doc1", embedding, {"text": "..."})
+        """
+        return create_vector_db(name, metric)
+    
+    def create_rag_pipeline(self, vector_db: VectorDB, top_k: int = 3) -> RAGPipeline:
+        """
+        Create a RAG (Retrieval-Augmented Generation) pipeline
+        
+        Args:
+            vector_db: Vector database for retrieval
+            top_k: Number of documents to retrieve per query
+            
+        Returns:
+            RAGPipeline instance
+            
+        Example:
+            db = app.create_vector_db("docs")
+            rag = app.create_rag_pipeline(db, top_k=5)
+            results = rag.retrieve(query_embedding)
+        """
+        return create_rag_pipeline(vector_db, top_k)
+    
+    def vector_search(self, pattern: str, vector_db: VectorDB, method: str = "POST"):
+        """
+        Decorator for vector search endpoints
+        
+        Args:
+            pattern: URL pattern
+            vector_db: VectorDB instance
+            method: HTTP method (default: POST)
+            
+        Returns:
+            Decorator function
+            
+        Example:
+            db = app.create_vector_db("docs")
+            
+            @app.vector_search("/api/search", db)
+            def search(request):
+                data = parse_json(request.body)
+                query_vector = np.array(data["vector"])
+                top_k = data.get("top_k", 5)
+                return {"query_vector": query_vector, "top_k": top_k}
+        """
+        def decorator(handler):
+            def search_handler(req: HTTPRequest) -> HTTPResponse:
+                try:
+                    # Execute handler to get search parameters
+                    params = handler(req)
+                    
+                    query_vector = params["query_vector"]
+                    top_k = params.get("top_k", 5)
+                    filter_fn = params.get("filter_fn")
+                    
+                    # Perform search
+                    results = vector_db.search(query_vector, top_k, filter_fn)
+                    
+                    # Format results
+                    response_data = {
+                        "results": [r.to_dict() for r in results],
+                        "count": len(results),
+                        "database": vector_db.name,
+                        "metric": vector_db.metric
+                    }
+                    
+                    import json
+                    return HTTPResponse(200, json.dumps(response_data))
+                    
+                except VectorDBError as e:
+                    import json
+                    error_response = {
+                        "error": "Vector search failed",
+                        "message": e.message
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+                except Exception as e:
+                    import json
+                    error_response = {
+                        "error": "Internal error",
+                        "message": str(e)
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+            
+            # Register route
+            self.route(pattern, method)(search_handler)
+            return handler
+        
+        return decorator
+    
+    def rag_endpoint(self, pattern: str, rag_pipeline: RAGPipeline, method: str = "POST"):
+        """
+        Decorator for RAG (Retrieval-Augmented Generation) endpoints
+        
+        Args:
+            pattern: URL pattern
+            rag_pipeline: RAGPipeline instance
+            method: HTTP method (default: POST)
+            
+        Returns:
+            Decorator function
+            
+        Example:
+            db = app.create_vector_db("knowledge")
+            rag = app.create_rag_pipeline(db, top_k=3)
+            
+            @app.rag_endpoint("/api/rag", rag)
+            def rag_query(request):
+                data = parse_json(request.body)
+                query_vector = np.array(data["query_vector"])
+                query_text = data.get("query_text", "")
+                return {"query_vector": query_vector, "query_text": query_text}
+        """
+        def decorator(handler):
+            def rag_handler(req: HTTPRequest) -> HTTPResponse:
+                try:
+                    # Execute handler to get query parameters
+                    params = handler(req)
+                    
+                    query_vector = params["query_vector"]
+                    query_text = params.get("query_text", "")
+                    filter_fn = params.get("filter_fn")
+                    
+                    # Retrieve relevant documents
+                    results = rag_pipeline.retrieve(query_vector, filter_fn)
+                    
+                    # Build context from results
+                    context = rag_pipeline.build_context(results)
+                    
+                    # Augment query if text provided
+                    augmented_query = ""
+                    if query_text:
+                        augmented_query = rag_pipeline.augment_query(query_text, context)
+                    
+                    # Format response
+                    response_data = {
+                        "context": context,
+                        "augmented_query": augmented_query,
+                        "retrieved_documents": [r.to_dict() for r in results],
+                        "count": len(results)
+                    }
+                    
+                    import json
+                    return HTTPResponse(200, json.dumps(response_data))
+                    
+                except VectorDBError as e:
+                    import json
+                    error_response = {
+                        "error": "RAG query failed",
+                        "message": e.message
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+                except Exception as e:
+                    import json
+                    error_response = {
+                        "error": "Internal error",
+                        "message": str(e)
+                    }
+                    return HTTPResponse(500, json.dumps(error_response))
+            
+            # Register route
+            self.route(pattern, method)(rag_handler)
+            return handler
+        
+        return decorator
 
     def run(self, host: str = "", port: int = 0):
         """
